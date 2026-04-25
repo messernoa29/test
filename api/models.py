@@ -1,0 +1,630 @@
+"""Pydantic models mirroring lib/types.ts — keep in sync.
+
+Validators are deliberately tolerant: the LLM output is unpredictable at the
+margins and we'd rather degrade gracefully than reject a whole audit for a
+single off-by-one value. The sanitization layer in analyzer.py handles
+alias/enum fixes; these models take care of nullable strings, clamped
+numbers, and default lists.
+"""
+
+from __future__ import annotations
+
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+AuditSection = Literal[
+    "security", "seo", "ux", "content", "performance", "business"
+]
+Severity = Literal["critical", "warning", "info", "ok", "missing"]
+PageStatus = Literal["critical", "warning", "improve", "ok"]
+Priority = Literal["high", "medium", "low"]
+
+
+Impact = Literal["high", "medium", "low"]
+Effort = Literal["quick", "medium", "heavy"]
+
+
+_REQUIRED_SECTIONS: frozenset[str] = frozenset(
+    ("security", "seo", "ux", "content", "performance", "business")
+)
+
+
+def _clamp_score(v: object) -> int:
+    try:
+        n = int(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(100, n))
+
+
+def _clamp_nonneg_int(v: object) -> int:
+    try:
+        n = int(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return max(0, n)
+
+
+def _coerce_str(v: object) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    return str(v)
+
+
+def _coerce_list(v: object) -> list:
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return v
+    return []
+
+
+def _coerce_str_list(v: object) -> list[str]:
+    if not isinstance(v, list):
+        return []
+    return [str(x) for x in v if x is not None]
+
+
+class Finding(BaseModel):
+    severity: Severity
+    title: str
+    description: str
+    recommendation: Optional[str] = None
+    actions: list[str] = Field(default_factory=list)
+    impact: Optional[Impact] = None
+    effort: Optional[Effort] = None
+    evidence: Optional[str] = None
+    reference: Optional[str] = None
+
+    @field_validator("title", "description", mode="before")
+    @classmethod
+    def _str_fields(cls, v: object) -> str:
+        return _coerce_str(v)
+
+    @field_validator("actions", mode="before")
+    @classmethod
+    def _actions(cls, v: object) -> list[str]:
+        return _coerce_str_list(v)
+
+
+class SectionResult(BaseModel):
+    section: AuditSection
+    title: str
+    score: int = Field(ge=0, le=100)
+    verdict: str
+    findings: list[Finding] = Field(default_factory=list)
+
+    @field_validator("title", "verdict", mode="before")
+    @classmethod
+    def _strings(cls, v: object) -> str:
+        return _coerce_str(v)
+
+    @field_validator("score", mode="before")
+    @classmethod
+    def _score(cls, v: object) -> int:
+        return _clamp_score(v)
+
+    @field_validator("findings", mode="before")
+    @classmethod
+    def _findings(cls, v: object) -> list:
+        return _coerce_list(v)
+
+
+class PageRecommendation(BaseModel):
+    urlCurrent: Optional[str] = None
+    titleCurrent: Optional[str] = None
+    h1Current: Optional[str] = None
+    metaCurrent: Optional[str] = None
+    url: Optional[str] = None
+    title: Optional[str] = None
+    h1: Optional[str] = None
+    meta: Optional[str] = None
+    actions: list[str] = Field(default_factory=list)
+    estimatedMonthlyTraffic: Optional[int] = None
+
+    @field_validator("actions", mode="before")
+    @classmethod
+    def _actions(cls, v: object) -> list[str]:
+        return _coerce_str_list(v)
+
+    @field_validator("estimatedMonthlyTraffic", mode="before")
+    @classmethod
+    def _traffic(cls, v: object) -> Optional[int]:
+        if v is None or v == "":
+            return None
+        try:
+            n = int(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return max(0, n)
+
+
+class PageAnalysis(BaseModel):
+    url: str
+    status: PageStatus
+    title: str = ""
+    titleLength: int = 0
+    h1: str = ""
+    metaDescription: Optional[str] = None
+    metaLength: int = 0
+    targetKeywords: list[str] = Field(default_factory=list)
+    presentKeywords: list[str] = Field(default_factory=list)
+    missingKeywords: list[str] = Field(default_factory=list)
+    findings: list[Finding] = Field(default_factory=list)
+    recommendation: Optional[PageRecommendation] = None
+
+    @field_validator("title", "h1", "url", mode="before")
+    @classmethod
+    def _strings(cls, v: object) -> str:
+        return _coerce_str(v)
+
+    @field_validator("titleLength", "metaLength", mode="before")
+    @classmethod
+    def _lengths(cls, v: object) -> int:
+        return _clamp_nonneg_int(v)
+
+    @field_validator(
+        "targetKeywords", "presentKeywords", "missingKeywords", mode="before"
+    )
+    @classmethod
+    def _kw(cls, v: object) -> list[str]:
+        return _coerce_str_list(v)
+
+    @field_validator("findings", mode="before")
+    @classmethod
+    def _findings(cls, v: object) -> list:
+        return _coerce_list(v)
+
+
+class MissingPage(BaseModel):
+    url: str
+    reason: str
+    estimatedSearchVolume: Optional[int] = None
+    priority: Priority
+
+    @field_validator("url", "reason", mode="before")
+    @classmethod
+    def _strings(cls, v: object) -> str:
+        return _coerce_str(v)
+
+    @field_validator("estimatedSearchVolume", mode="before")
+    @classmethod
+    def _volume(cls, v: object) -> Optional[int]:
+        if v is None or v == "":
+            return None
+        try:
+            n = int(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return max(0, n)
+
+
+SchemaStatus = Literal["active", "restricted", "deprecated", "unknown"]
+SchemaFormat = Literal["json-ld", "microdata", "rdfa"]
+
+
+class DetectedSchema(BaseModel):
+    """One Schema.org entity found on a page."""
+
+    type: str  # e.g. "Organization", "LocalBusiness", "FAQPage"
+    format: SchemaFormat
+    status: SchemaStatus = "unknown"
+    issues: list[str] = Field(default_factory=list)
+
+
+class CrawlPage(BaseModel):
+    url: str
+    title: str = ""
+    h1: str = ""
+    metaDescription: Optional[str] = None
+    headings: list[str] = Field(default_factory=list)
+    textSnippet: str = ""
+    schemas: list[DetectedSchema] = Field(default_factory=list)
+    # True when the page was rendered via Playwright (JS fallback).
+    renderedWithPlaywright: bool = False
+
+
+class PerformanceMetric(BaseModel):
+    """One Core Web Vital with real + lab values when available."""
+
+    name: str  # "LCP" | "INP" | "CLS" | "FCP" | "TTFB"
+    fieldValue: Optional[float] = None  # CrUX (real users)
+    fieldPercentile75: Optional[float] = None
+    labValue: Optional[float] = None  # Lighthouse lab
+    rating: Optional[str] = None  # "good" | "needs-improvement" | "poor"
+    threshold: Optional[str] = None  # "< 2.5s", etc.
+
+
+class PerformanceSnapshot(BaseModel):
+    """Result of a PageSpeed Insights call on a URL."""
+
+    url: str
+    strategy: str  # "mobile" | "desktop"
+    source: str  # "crux" | "lighthouse" | "mixed" | "unavailable"
+    fetchedAt: str
+    performanceScore: Optional[int] = None  # 0-100 from Lighthouse
+    metrics: list[PerformanceMetric] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class CrawlData(BaseModel):
+    domain: str
+    url: str
+    crawledAt: str
+    pages: list[CrawlPage] = Field(default_factory=list)
+    performance: Optional[PerformanceSnapshot] = None
+
+
+class AuditResult(BaseModel):
+    id: str
+    domain: str
+    url: str
+    createdAt: str
+    globalScore: int = Field(ge=0, le=100)
+    globalVerdict: str
+    scores: dict[AuditSection, int]
+    sections: list[SectionResult]
+    criticalCount: int = 0
+    warningCount: int = 0
+    quickWins: list[str] = Field(default_factory=list)
+    pages: Optional[list[PageAnalysis]] = None
+    missingPages: Optional[list[MissingPage]] = None
+
+    @field_validator("globalScore", mode="before")
+    @classmethod
+    def _global_score(cls, v: object) -> int:
+        return _clamp_score(v)
+
+    @field_validator("criticalCount", "warningCount", mode="before")
+    @classmethod
+    def _counts(cls, v: object) -> int:
+        return _clamp_nonneg_int(v)
+
+    @field_validator("globalVerdict", mode="before")
+    @classmethod
+    def _verdict(cls, v: object) -> str:
+        return _coerce_str(v) or "À consolider"
+
+    @field_validator("quickWins", mode="before")
+    @classmethod
+    def _wins(cls, v: object) -> list[str]:
+        return _coerce_str_list(v)
+
+    @field_validator("scores", mode="before")
+    @classmethod
+    def _scores(cls, v: object) -> dict:
+        """Guarantee every axis is present and in range.
+
+        Missing axes default to 50 (neutral) rather than failing validation.
+        Extra axes are dropped.
+        """
+        out: dict[str, int] = {s: 50 for s in _REQUIRED_SECTIONS}
+        if isinstance(v, dict):
+            for k, raw in v.items():
+                if isinstance(k, str) and k in _REQUIRED_SECTIONS:
+                    out[k] = _clamp_score(raw)
+        return out
+
+
+class AuditRequest(BaseModel):
+    url: HttpUrl
+    includeSeoDeep: bool = False
+    agencyName: Optional[str] = None
+
+
+JobStatus = Literal["pending", "done", "failed"]
+
+
+class AuditJobSummary(BaseModel):
+    """Lightweight view of an audit — used in lists/sidebar."""
+
+    id: str
+    url: str
+    domain: str
+    createdAt: str
+    status: JobStatus
+    error: Optional[str] = None
+    archived: bool = False
+    globalScore: Optional[int] = None
+    globalVerdict: Optional[str] = None
+    criticalCount: Optional[int] = None
+    warningCount: Optional[int] = None
+
+
+class AuditJobDetail(BaseModel):
+    """Full detail returned by GET /audit/{id} — handles all statuses."""
+
+    id: str
+    url: str
+    domain: str
+    createdAt: str
+    status: JobStatus
+    error: Optional[str] = None
+    archived: bool = False
+    result: Optional[AuditResult] = None
+
+
+class AgencyBranding(BaseModel):
+    """Identity of the agency displayed on generated reports.
+
+    `logoUrl` is either a data URL (frontend preview) or a relative path
+    served by the backend (/settings/branding/logo) once uploaded.
+    """
+
+    name: Optional[str] = None
+    tagline: Optional[str] = None
+    website: Optional[str] = None
+    accentColor: Optional[str] = None  # hex, e.g. "#2563EB"
+    logoUrl: Optional[str] = None
+    updatedAt: Optional[str] = None
+
+
+# --- Competitor Watch --------------------------------------------------------
+
+CompetitorBattleStatus = Literal["pending", "running", "done", "failed"]
+
+
+class CompetitorSite(BaseModel):
+    """One competitor inside a battle: URL + pointer to its underlying audit."""
+
+    url: str
+    auditId: Optional[str] = None
+    label: Optional[str] = None  # optional display name ("Nous" / concurrent)
+
+
+class CompetitorReport(BaseModel):
+    """LLM-produced synthesis across all sites in a battle."""
+
+    winnersByAxis: dict[str, str] = Field(default_factory=dict)
+    keyInsights: list[str] = Field(default_factory=list)
+    ourStrengths: list[str] = Field(default_factory=list)
+    ourWeaknesses: list[str] = Field(default_factory=list)
+    priorityActions: list[str] = Field(default_factory=list)
+    verdict: Optional[str] = None
+
+
+class CompetitorBattle(BaseModel):
+    """A comparison between one target site and N competitors."""
+
+    id: str
+    targetUrl: str
+    competitors: list[CompetitorSite]
+    createdAt: str
+    status: CompetitorBattleStatus
+    error: Optional[str] = None
+    # Populated as soon as the first audit completes and fully built once
+    # all audits are done.
+    report: Optional[CompetitorReport] = None
+
+
+class CompetitorBattleRequest(BaseModel):
+    targetUrl: HttpUrl
+    competitors: list[HttpUrl] = Field(min_length=1, max_length=5)
+
+
+# --- Content Brief ----------------------------------------------------------
+
+ContentBriefStatus = Literal["pending", "running", "done", "failed"]
+
+
+class SerpResult(BaseModel):
+    """One organic result inspected during the brief generation."""
+
+    rank: int
+    url: str
+    title: str
+    h1: Optional[str] = None
+    headings: list[str] = Field(default_factory=list)
+    metaDescription: Optional[str] = None
+    wordCount: Optional[int] = None
+
+
+class ContentBriefOutline(BaseModel):
+    """A proposed H2 with optional H3 bullets and intent description."""
+
+    title: str
+    intent: Optional[str] = None
+    bullets: list[str] = Field(default_factory=list)
+    targetWords: Optional[int] = None
+
+
+class ContentBriefResult(BaseModel):
+    """LLM-produced editorial brief from the SERP analysis."""
+
+    summary: Optional[str] = None
+    intent: Optional[str] = None  # informational / commercial / navigational
+    targetAudience: Optional[str] = None
+    suggestedTitle: Optional[str] = None
+    suggestedMeta: Optional[str] = None
+    h1: Optional[str] = None
+    targetWordCount: Optional[int] = None
+    primaryKeywords: list[str] = Field(default_factory=list)
+    semanticKeywords: list[str] = Field(default_factory=list)
+    outline: list[ContentBriefOutline] = Field(default_factory=list)
+    faq: list[str] = Field(default_factory=list)
+    quickWins: list[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+class ContentBrief(BaseModel):
+    """A brief job — request + status + serp data + result."""
+
+    id: str
+    query: str
+    locale: str = "fr-FR"
+    createdAt: str
+    status: ContentBriefStatus
+    error: Optional[str] = None
+    serpResults: list[SerpResult] = Field(default_factory=list)
+    result: Optional[ContentBriefResult] = None
+
+
+class ContentBriefRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=200)
+    locale: str = Field(default="fr-FR", min_length=2, max_length=10)
+
+
+# --- AI Search Visibility ---------------------------------------------------
+
+AiVisibilityStatus = Literal["pending", "running", "done", "failed"]
+
+
+class AiCitation(BaseModel):
+    """One source cited by an AI engine when answering a query."""
+
+    url: Optional[str] = None
+    title: Optional[str] = None
+    snippet: Optional[str] = None
+
+
+class AiQueryResult(BaseModel):
+    """Result of probing one query against one AI engine."""
+
+    engine: str  # "gemini" | "anthropic" | …
+    query: str
+    answer: Optional[str] = None
+    cited: bool = False  # target domain found in citations
+    targetMentioned: bool = False  # target name mentioned in answer text
+    citations: list[AiCitation] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class AiVisibilityReport(BaseModel):
+    """LLM-produced synthesis once all probes are done."""
+
+    summary: Optional[str] = None
+    citationRate: float = 0.0  # 0..1
+    mentionRate: float = 0.0
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+
+
+class AiVisibilityCheck(BaseModel):
+    """A check job — target site + queries + per-query probe results."""
+
+    id: str
+    targetDomain: str
+    targetName: Optional[str] = None
+    queries: list[str]
+    createdAt: str
+    status: AiVisibilityStatus
+    error: Optional[str] = None
+    probes: list[AiQueryResult] = Field(default_factory=list)
+    report: Optional[AiVisibilityReport] = None
+
+
+class AiVisibilityRequest(BaseModel):
+    targetDomain: str = Field(min_length=3, max_length=255)
+    targetName: Optional[str] = Field(default=None, max_length=120)
+    queries: list[str] = Field(min_length=1, max_length=10)
+
+
+# --- Bulk Audit -------------------------------------------------------------
+
+BulkAuditStatus = Literal["pending", "running", "done", "failed"]
+
+
+class BulkAuditItem(BaseModel):
+    url: str
+    auditId: Optional[str] = None
+    label: Optional[str] = None  # optional friendly name from the CSV
+
+
+class BulkAudit(BaseModel):
+    id: str
+    createdAt: str
+    status: BulkAuditStatus
+    items: list[BulkAuditItem]
+    error: Optional[str] = None
+
+
+class BulkAuditRequest(BaseModel):
+    urls: list[HttpUrl] = Field(min_length=1, max_length=50)
+    labels: Optional[list[str]] = None
+
+
+# --- Sitemap Watcher --------------------------------------------------------
+
+
+class SitemapDiff(BaseModel):
+    domain: str
+    sitemapUrl: str
+    fetchedAt: str
+    previousFetchedAt: Optional[str] = None
+    currentCount: int
+    previousCount: int = 0
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    unchanged: int = 0
+
+
+class SitemapWatch(BaseModel):
+    id: str            # md5(domain) — stable per site
+    domain: str
+    sitemapUrl: str
+    createdAt: str
+    updatedAt: str
+    snapshotUrls: list[str] = Field(default_factory=list)
+    lastDiff: Optional[SitemapDiff] = None
+
+
+class SitemapWatchRequest(BaseModel):
+    url: HttpUrl
+
+
+# --- Performance Monitor ----------------------------------------------------
+
+
+class PerfMonitor(BaseModel):
+    id: str
+    url: str
+    strategy: str  # "mobile" | "desktop"
+    createdAt: str
+    updatedAt: str
+    history: list[PerformanceSnapshot] = Field(default_factory=list)
+
+
+class PerfMonitorRequest(BaseModel):
+    url: HttpUrl
+    strategy: str = "mobile"
+
+
+# --- SEO Tracker ------------------------------------------------------------
+
+
+class KeywordReading(BaseModel):
+    """One position check for one keyword at a point in time."""
+
+    keyword: str
+    checkedAt: str
+    position: Optional[int] = None     # 1..100, None when not in top 100
+    url: Optional[str] = None          # URL that ranked, when found
+    engine: str = "duckduckgo"
+
+
+class TrackedKeyword(BaseModel):
+    keyword: str
+    history: list[KeywordReading] = Field(default_factory=list)
+
+
+class SeoCampaign(BaseModel):
+    id: str
+    domain: str
+    locale: str = "fr-FR"
+    createdAt: str
+    updatedAt: str
+    keywords: list[TrackedKeyword] = Field(default_factory=list)
+
+
+class SeoCampaignRequest(BaseModel):
+    domain: str = Field(min_length=3, max_length=255)
+    keywords: list[str] = Field(min_length=1, max_length=50)
+    locale: str = Field(default="fr-FR", min_length=2, max_length=10)
+
+
+class SeoCampaignAddKeywordsRequest(BaseModel):
+    keywords: list[str] = Field(min_length=1, max_length=20)

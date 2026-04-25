@@ -1,0 +1,13 @@
+# Force Python build for Railway (Next.js frontend deploys to Vercel separately).
+# Without this, Nixpacks sees package.json and tries to build the frontend here.
+
+providers = ["python"]
+
+[phases.setup]
+nixPkgs = ["python311", "gcc"]
+
+[phases.install]
+cmds = ["pip install --upgrade pip", "pip install -r api/requirements.txt"]
+
+[start]
+cmd = "uvicorn api.main:app --host 0.0.0.0 --port $PORT"

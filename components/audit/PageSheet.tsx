@@ -1,0 +1,199 @@
+import type { PageAnalysis, PageRecommendation } from '@/lib/types'
+import { Badge } from '@/components/ui/Badge'
+import { PAGE_STATUS_LABEL } from '@/lib/design'
+import { FindingRow } from './FindingRow'
+
+interface PageSheetProps {
+  page: PageAnalysis
+}
+
+export function PageSheet({ page }: PageSheetProps) {
+  return (
+    <article className="bg-bg-surface border border-[var(--border-subtle)] rounded-md overflow-hidden">
+      <header
+        className="flex items-center justify-between gap-3 px-5 py-3 border-l-[3px] bg-bg-elevated"
+        style={{
+          borderLeftColor: `var(--status-${page.status === 'improve' ? 'warning' : page.status}-accent)`,
+        }}
+      >
+        <code className="font-mono text-xs text-text-secondary truncate">{page.url}</code>
+        <Badge kind={page.status}>{PAGE_STATUS_LABEL[page.status]}</Badge>
+      </header>
+
+      <div className="px-5 py-4 space-y-5">
+        <MetaGrid page={page} />
+        <KeywordsBlock page={page} />
+
+        {page.findings.length > 0 && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary mb-2">
+              Points détectés
+            </div>
+            <div className="border border-[var(--border-subtle)] rounded-md overflow-hidden">
+              <div className="grid grid-cols-[40px_140px_1fr_100px_100px_24px] gap-3 px-4 py-2 bg-bg-elevated border-b border-[var(--border-subtle)]">
+                {['#', 'Sévérité', 'Titre', 'Impact', 'Effort', ''].map((h, i) => (
+                  <div
+                    key={i}
+                    className="text-[10px] uppercase tracking-wider font-medium text-text-tertiary"
+                  >
+                    {h}
+                  </div>
+                ))}
+              </div>
+              {page.findings.map((f, i) => (
+                <FindingRow key={i} finding={f} index={i} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {page.recommendation && <RecoBlock reco={page.recommendation} />}
+      </div>
+    </article>
+  )
+}
+
+function MetaGrid({ page }: { page: PageAnalysis }) {
+  const rows = [
+    { label: 'Title', value: page.title || 'absent', extra: `${page.titleLength} car.` },
+    { label: 'H1', value: page.h1 || 'absent', extra: '' },
+    {
+      label: 'Meta',
+      value: page.metaDescription || 'absente',
+      extra: `${page.metaLength} car.`,
+    },
+  ]
+  return (
+    <div className="divide-y divide-[var(--border-subtle)] border border-[var(--border-subtle)] rounded-md">
+      {rows.map((r) => (
+        <div
+          key={r.label}
+          className="grid grid-cols-[70px_1fr_auto] gap-4 px-4 py-2.5 items-start"
+        >
+          <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary pt-0.5">
+            {r.label}
+          </div>
+          <div className="text-sm text-text-primary leading-snug">{r.value}</div>
+          <div className="font-mono text-[11px] text-text-tertiary pt-0.5">{r.extra}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function KeywordsBlock({ page }: { page: PageAnalysis }) {
+  const rows = [
+    {
+      label: 'KW cibles',
+      values: page.targetKeywords ?? [],
+      color: 'var(--primary)',
+    },
+    {
+      label: 'Présents',
+      values: page.presentKeywords ?? [],
+      color: 'var(--status-ok-accent)',
+    },
+    {
+      label: 'Absents',
+      values: page.missingKeywords ?? [],
+      color: 'var(--status-critical-accent)',
+    },
+  ]
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r) => (
+        <div key={r.label} className="grid grid-cols-[110px_1fr] gap-4 items-start">
+          <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary pt-0.5">
+            {r.label}
+          </div>
+          <div className="text-sm leading-snug" style={{ color: r.color }}>
+            {r.values.length > 0 ? r.values.join(', ') : '—'}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function RecoBlock({ reco }: { reco: PageRecommendation }) {
+  const rows: { label: string; current?: string; proposed?: string; mono?: boolean }[] = []
+  if (reco.urlCurrent || reco.url)
+    rows.push({ label: 'URL', current: reco.urlCurrent, proposed: reco.url, mono: true })
+  if (reco.titleCurrent || reco.title)
+    rows.push({ label: 'Title', current: reco.titleCurrent, proposed: reco.title })
+  if (reco.h1Current || reco.h1)
+    rows.push({ label: 'H1', current: reco.h1Current, proposed: reco.h1 })
+  if (reco.metaCurrent || reco.meta)
+    rows.push({ label: 'Meta', current: reco.metaCurrent, proposed: reco.meta })
+
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wider font-medium text-primary mb-2">
+        Recommandation détaillée
+      </div>
+      <div className="border border-[var(--border-subtle)] rounded-md overflow-hidden">
+        <div className="grid grid-cols-[70px_1fr_1fr] bg-bg-elevated border-b border-[var(--border-subtle)]">
+          <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary px-3 py-2">
+            Champ
+          </div>
+          <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary px-3 py-2 border-l border-[var(--border-subtle)]">
+            Actuel
+          </div>
+          <div className="text-[11px] uppercase tracking-wider font-medium text-primary px-3 py-2 border-l border-[var(--border-subtle)]">
+            Recommandé
+          </div>
+        </div>
+        {rows.map((r) => (
+          <div
+            key={r.label}
+            className="grid grid-cols-[70px_1fr_1fr] border-b border-[var(--border-subtle)] last:border-0"
+          >
+            <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary px-3 py-2.5">
+              {r.label}
+            </div>
+            <div
+              className={`px-3 py-2.5 text-sm text-text-secondary border-l border-[var(--border-subtle)] ${r.mono ? 'font-mono text-xs' : ''}`}
+            >
+              {r.current || '—'}
+            </div>
+            <div
+              className={`px-3 py-2.5 text-sm text-primary font-medium border-l border-[var(--border-subtle)] ${r.mono ? 'font-mono text-xs' : ''}`}
+            >
+              {r.proposed || '—'}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {reco.actions && reco.actions.length > 0 && (
+        <div className="mt-4">
+          <div className="text-[11px] uppercase tracking-wider font-medium text-primary mb-2">
+            Actions techniques
+          </div>
+          <ul className="space-y-1.5">
+            {reco.actions.map((a, i) => (
+              <li
+                key={i}
+                className="flex gap-2 text-sm text-text-primary leading-snug"
+              >
+                <span className="text-xs tabular-nums text-text-tertiary mt-[3px] flex-shrink-0 w-5">
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <span>{a}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {reco.estimatedMonthlyTraffic && (
+        <p className="mt-3 text-xs text-text-tertiary">
+          Trafic mensuel estimé :{' '}
+          <span className="text-primary font-medium">
+            ~{reco.estimatedMonthlyTraffic} visites/mois
+          </span>
+        </p>
+      )}
+    </div>
+  )
+}

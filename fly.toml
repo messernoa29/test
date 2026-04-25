@@ -1,0 +1,50 @@
+# Fly.io deployment config for the audit backend.
+#
+# First-time setup (once):
+#   fly launch --no-deploy --copy-config --name audit-bureau-api --region cdg
+#   fly volumes create audit_data --size 1 --region cdg
+#   fly postgres create --name audit-bureau-db --region cdg  (optional)
+#   fly postgres attach audit-bureau-db --app audit-bureau-api
+#   fly secrets set GEMINI_API_KEY=... LLM_PROVIDER=gemini GEMINI_MODEL=gemini-3-pro-preview
+#   fly secrets set ALLOWED_ORIGINS=https://audit-bureau.vercel.app
+#
+# Deploy:
+#   fly deploy
+
+app = "audit-bureau-api"
+primary_region = "cdg"  # Paris — low latency for French clients
+
+[build]
+  dockerfile = "api/Dockerfile"
+
+[env]
+  PORT = "8000"
+  PYTHONUNBUFFERED = "1"
+
+[[mounts]]
+  source = "audit_data"
+  destination = "/app/api/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"     # halt when idle to save free allowance
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 40
+    soft_limit = 25
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "get"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory_mb = 512

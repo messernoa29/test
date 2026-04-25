@@ -1,0 +1,51 @@
+node_modules
+.next
+out
+build
+dist
+
+# Frontend
+app
+components
+lib
+public
+tsconfig.json
+package.json
+package-lock.json
+tailwind.config.ts
+postcss.config.mjs
+next.config.mjs
+
+# Python artefacts
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+.venv
+
+# Local data (committed is never the goal anyway)
+api/data
+
+# Git & IDE
+.git
+.gitignore
+.vscode
+.idea
+.claude
+docs
+out
+
+# Dev env files — secrets are set in Fly.io, not baked into the image
+.env
+.env.*
+api/.env
+api/.env.*
+
+# Artefacts
+*.pdf
+*.xlsx
+*.db
+*.sqlite
+*.log

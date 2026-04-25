@@ -1,0 +1,40 @@
+# Node / Next
+node_modules/
+.next/
+out/
+next-env.d.ts
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Claude local
+.claude/settings.local.json
+
+# Artefacts
+*.pdf
+!docs/**/*.pdf
+
+# Backend data
+api/data/*.db
+api/data/*.db-journal
+api/data/*.db-wal
+api/data/*.db-shm
+api/data/branding/
+
+# Vercel
+.vercel
+tsconfig.tsbuildinfo

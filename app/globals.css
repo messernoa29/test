@@ -1,0 +1,160 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Surfaces */
+  --bg-page: #fafafa;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f4f4f5;
+  --bg-overlay: #e4e4e7;
+
+  /* Text */
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
+  --text-tertiary: #a1a1aa;
+  --text-inverse: #ffffff;
+
+  /* Borders */
+  --border-subtle: #e4e4e7;
+  --border-default: #d4d4d8;
+  --border-strong: #a1a1aa;
+
+  /* Primary (blue action color) */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-bg: #eff6ff;
+  --primary-border: #bfdbfe;
+  --primary-dim: rgba(37, 99, 235, 0.1);
+
+  /* Legacy accent aliases — map to primary so older components still work */
+  --accent: var(--primary);
+  --accent-dim: var(--primary-dim);
+  --accent-border: var(--primary-border);
+
+  /* Status — critique */
+  --status-critical-bg: #fef2f2;
+  --status-critical-border: #fecaca;
+  --status-critical-text: #b91c1c;
+  --status-critical-accent: #dc2626;
+  --status-critical-label: #991b1b;
+
+  /* Status — warning */
+  --status-warning-bg: #fffbeb;
+  --status-warning-border: #fde68a;
+  --status-warning-text: #b45309;
+  --status-warning-accent: #d97706;
+  --status-warning-label: #92400e;
+
+  /* Status — ok */
+  --status-ok-bg: #f0fdf4;
+  --status-ok-border: #bbf7d0;
+  --status-ok-text: #047857;
+  --status-ok-accent: #059669;
+  --status-ok-label: #065f46;
+
+  /* Status — info */
+  --status-info-bg: #eff6ff;
+  --status-info-border: #bfdbfe;
+  --status-info-text: #1d4ed8;
+  --status-info-accent: #2563eb;
+  --status-info-label: #1e40af;
+
+  /* Status — missing */
+  --status-missing-bg: #f5f3ff;
+  --status-missing-border: #ddd6fe;
+  --status-missing-text: #6d28d9;
+  --status-missing-accent: #7c3aed;
+  --status-missing-label: #5b21b6;
+}
+
+html.dark {
+  --bg-page: #0b0d10;
+  --bg-surface: #13161a;
+  --bg-elevated: #1a1d22;
+  --bg-overlay: #24282d;
+
+  --text-primary: #e4e6eb;
+  --text-secondary: #a1a7b3;
+  --text-tertiary: #6b7280;
+  --text-inverse: #0b0d10;
+
+  --border-subtle: #1f232a;
+  --border-default: #2b3038;
+  --border-strong: #3d434d;
+
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-bg: rgba(59, 130, 246, 0.12);
+  --primary-border: rgba(59, 130, 246, 0.35);
+  --primary-dim: rgba(59, 130, 246, 0.18);
+
+  --accent: var(--primary);
+  --accent-dim: var(--primary-dim);
+  --accent-border: var(--primary-border);
+
+  /* Status — darker backgrounds, brighter text */
+  --status-critical-bg: rgba(220, 38, 38, 0.12);
+  --status-critical-border: rgba(220, 38, 38, 0.3);
+  --status-critical-text: #fca5a5;
+  --status-critical-accent: #ef4444;
+  --status-critical-label: #fecaca;
+
+  --status-warning-bg: rgba(217, 119, 6, 0.12);
+  --status-warning-border: rgba(217, 119, 6, 0.3);
+  --status-warning-text: #fbbf24;
+  --status-warning-accent: #f59e0b;
+  --status-warning-label: #fde68a;
+
+  --status-ok-bg: rgba(5, 150, 105, 0.12);
+  --status-ok-border: rgba(5, 150, 105, 0.3);
+  --status-ok-text: #6ee7b7;
+  --status-ok-accent: #10b981;
+  --status-ok-label: #a7f3d0;
+
+  --status-info-bg: rgba(37, 99, 235, 0.12);
+  --status-info-border: rgba(37, 99, 235, 0.3);
+  --status-info-text: #93c5fd;
+  --status-info-accent: #3b82f6;
+  --status-info-label: #bfdbfe;
+
+  --status-missing-bg: rgba(124, 58, 237, 0.12);
+  --status-missing-border: rgba(124, 58, 237, 0.3);
+  --status-missing-text: #c4b5fd;
+  --status-missing-accent: #8b5cf6;
+  --status-missing-label: #ddd6fe;
+}
+
+html,
+body {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@keyframes pulse-critical {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
