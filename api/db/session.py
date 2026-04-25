@@ -30,6 +30,13 @@ def get_engine() -> Engine:
         if _engine is not None:
             return _engine
         url = get_settings().database_url
+        # Render / Heroku give DATABASE_URL=postgres://... but SQLAlchemy
+        # 2.x needs the explicit driver. Rewrite transparently so the user
+        # never has to think about it.
+        if url.startswith("postgres://"):
+            url = "postgresql+psycopg://" + url[len("postgres://"):]
+        elif url.startswith("postgresql://") and "+psycopg" not in url:
+            url = "postgresql+psycopg://" + url[len("postgresql://"):]
         kwargs: dict = {"future": True}
         if url.startswith("sqlite"):
             # SQLite needs to know we share the connection across threads

@@ -1,0 +1,44 @@
+# Render Blueprint — backend FastAPI + Postgres free tier.
+# Importable depuis https://dashboard.render.com/blueprints (bouton "New Blueprint").
+
+databases:
+  - name: audit-bureau-db
+    plan: free
+    databaseName: audit_bureau
+    user: audit_bureau
+
+services:
+  - type: web
+    name: audit-bureau-api
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: .
+    buildCommand: pip install -r api/requirements.txt && pip install "psycopg[binary]>=3.1"
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3-pro-preview
+      - key: GEMINI_API_KEY
+        sync: false  # set manually in dashboard
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PAGESPEED_API_KEY
+        sync: false
+      - key: SCHEDULER_ENABLED
+        value: "1"
+      - key: PLAYWRIGHT_ENABLED
+        value: "false"
+      - key: ALLOWED_ORIGIN_REGEX
+        value: ^https://.*\.vercel\.app$
+      - key: ALLOWED_ORIGINS
+        value: http://localhost:3000,http://localhost:3001
+      - key: DATABASE_URL
+        fromDatabase:
+          name: audit-bureau-db
+          property: connectionString
