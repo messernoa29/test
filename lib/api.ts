@@ -15,6 +15,35 @@ import type {
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
 const DEFAULT_TIMEOUT_MS = 30000
+const AUTH_STORAGE_KEY = 'audit-bureau:password'
+
+export function setStoredPassword(pw: string | null): void {
+  if (typeof window === 'undefined') return
+  if (pw) window.localStorage.setItem(AUTH_STORAGE_KEY, pw)
+  else window.localStorage.removeItem(AUTH_STORAGE_KEY)
+}
+
+export function getStoredPassword(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(AUTH_STORAGE_KEY)
+}
+
+function authHeader(): Record<string, string> {
+  const pw = getStoredPassword()
+  if (!pw) return {}
+  // username fixed to "admin", password matches APP_PASSWORD on the API.
+  const token = typeof window !== 'undefined'
+    ? window.btoa(`admin:${pw}`)
+    : Buffer.from(`admin:${pw}`).toString('base64')
+  return { Authorization: `Basic ${token}` }
+}
+
+export class AuthRequiredError extends Error {
+  constructor(message = 'Authentification requise.') {
+    super(message)
+    this.name = 'AuthRequiredError'
+  }
+}
 
 async function request<T>(
   path: string,
@@ -24,11 +53,25 @@ async function request<T>(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
+    const headers = {
+      ...authHeader(),
+      ...((init.headers as Record<string, string>) ?? {}),
+    }
     const res = await fetch(`${BASE_URL}${path}`, {
       ...init,
+      headers,
       signal: controller.signal,
       cache: 'no-store',
     })
+    if (res.status === 401) {
+      // Clear bad creds so the login screen reappears.
+      setStoredPassword(null)
+      if (typeof window !== 'undefined') {
+        // Soft reload to bounce the user back to the login gate.
+        window.dispatchEvent(new Event('audit-bureau:auth-required'))
+      }
+      throw new AuthRequiredError()
+    }
     if (!res.ok) {
       let detail = `${res.status} ${res.statusText}`
       try {
@@ -57,6 +100,27 @@ async function request<T>(
     throw err
   } finally {
     clearTimeout(timer)
+  }
+}
+
+// --- Auth ------------------------------------------------------------------
+
+export async function fetchAuthStatus(): Promise<{ required: boolean }> {
+  return request<{ required: boolean }>('/auth/status')
+}
+
+export async function verifyPassword(password: string): Promise<boolean> {
+  const token = typeof window !== 'undefined'
+    ? window.btoa(`admin:${password}`)
+    : Buffer.from(`admin:${password}`).toString('base64')
+  try {
+    const res = await fetch(`${BASE_URL}/auth/verify`, {
+      headers: { Authorization: `Basic ${token}` },
+      cache: 'no-store',
+    })
+    return res.status === 200
+  } catch {
+    return false
   }
 }
 

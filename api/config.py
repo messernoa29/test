@@ -30,6 +30,9 @@ class Settings:
     # CORS
     allowed_origins: list[str]
     allowed_origin_regex: Optional[str]
+    # Auth (HTTPBasic). Username fixed to "admin"; password via env.
+    # When unset, the API runs unauthenticated (dev mode).
+    auth_password: Optional[str]
     # Scheduler (APScheduler in-process)
     scheduler_enabled: bool
     scheduler_sitemap_cron: str   # cron string, e.g. "0 6 * * *"
@@ -91,6 +94,9 @@ class Settings:
         # Optional regex pattern for Vercel preview deployments
         # (e.g. https://audit-bureau-git-main-*.vercel.app)
         self.allowed_origin_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip() or None
+
+        # Auth — single shared password. Leave APP_PASSWORD unset to disable.
+        self.auth_password = os.getenv("APP_PASSWORD", "").strip() or None
 
         # Scheduler — disabled by default. Enable with SCHEDULER_ENABLED=1.
         # All cron strings use 5 fields (minute hour day month weekday).

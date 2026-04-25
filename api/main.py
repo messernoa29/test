@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import get_settings
@@ -23,6 +23,7 @@ from api.routes import (
     sitemap_watcher as sitemap_routes,
 )
 from api.services import scheduler as scheduler_service
+from api.services.auth import require_auth
 from api.services.runner import shutdown_executor
 from api.services.store import get_store
 
@@ -41,21 +42,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(audit.router, prefix="/audit", tags=["audit"])
-app.include_router(competitor.router, prefix="/competitor", tags=["competitor"])
+_auth = [Depends(require_auth)]
+
+app.include_router(audit.router, prefix="/audit", tags=["audit"], dependencies=_auth)
+app.include_router(competitor.router, prefix="/competitor", tags=["competitor"], dependencies=_auth)
 app.include_router(
-    content_brief_routes.router, prefix="/content-brief", tags=["content-brief"],
+    content_brief_routes.router, prefix="/content-brief", tags=["content-brief"], dependencies=_auth,
 )
 app.include_router(
-    ai_visibility_routes.router, prefix="/ai-visibility", tags=["ai-visibility"],
+    ai_visibility_routes.router, prefix="/ai-visibility", tags=["ai-visibility"], dependencies=_auth,
 )
-app.include_router(settings_routes.router, prefix="/settings", tags=["settings"])
-app.include_router(llms_txt_routes.router, prefix="/llms-txt", tags=["llms-txt"])
-app.include_router(bulk_routes.router, prefix="/bulk", tags=["bulk"])
-app.include_router(sitemap_routes.router, prefix="/sitemap-watcher", tags=["sitemap-watcher"])
-app.include_router(perf_monitor_routes.router, prefix="/perf-monitor", tags=["perf-monitor"])
-app.include_router(seo_tracker_routes.router, prefix="/seo-tracker", tags=["seo-tracker"])
-app.include_router(scheduler_routes.router, prefix="/scheduler", tags=["scheduler"])
+app.include_router(settings_routes.router, prefix="/settings", tags=["settings"], dependencies=_auth)
+app.include_router(llms_txt_routes.router, prefix="/llms-txt", tags=["llms-txt"], dependencies=_auth)
+app.include_router(bulk_routes.router, prefix="/bulk", tags=["bulk"], dependencies=_auth)
+app.include_router(sitemap_routes.router, prefix="/sitemap-watcher", tags=["sitemap-watcher"], dependencies=_auth)
+app.include_router(perf_monitor_routes.router, prefix="/perf-monitor", tags=["perf-monitor"], dependencies=_auth)
+app.include_router(seo_tracker_routes.router, prefix="/seo-tracker", tags=["seo-tracker"], dependencies=_auth)
+app.include_router(scheduler_routes.router, prefix="/scheduler", tags=["scheduler"], dependencies=_auth)
 
 
 @app.on_event("startup")
@@ -94,6 +97,18 @@ def _shutdown_pool() -> None:
     """Release background workers + scheduler when the server stops."""
     scheduler_service.shutdown(wait=False)
     shutdown_executor(wait=False)
+
+
+@app.get("/auth/status")
+def auth_status() -> dict[str, bool]:
+    """Tell the frontend whether a password is required at all."""
+    return {"required": settings.auth_password is not None}
+
+
+@app.get("/auth/verify", dependencies=_auth)
+def auth_verify() -> dict[str, str]:
+    """200 if creds OK, 401 otherwise. Used by the login screen."""
+    return {"status": "ok"}
 
 
 @app.get("/health")
