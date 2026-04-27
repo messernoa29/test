@@ -215,6 +215,14 @@ class DetectedSchema(BaseModel):
     issues: list[str] = Field(default_factory=list)
 
 
+class InternalLink(BaseModel):
+    """Single internal anchor extracted from a crawled page."""
+
+    target: str
+    anchorText: str = ""
+    rel: str = ""  # raw "rel" attribute (nofollow, sponsored, ugc...)
+
+
 class CrawlPage(BaseModel):
     url: str
     title: str = ""
@@ -225,6 +233,35 @@ class CrawlPage(BaseModel):
     schemas: list[DetectedSchema] = Field(default_factory=list)
     # True when the page was rendered via Playwright (JS fallback).
     renderedWithPlaywright: bool = False
+    internalLinks: list[InternalLink] = Field(default_factory=list)
+    internalLinksCount: int = 0
+
+
+class LinkGraphPageStat(BaseModel):
+    """In-degree / out-degree for one crawled page."""
+
+    url: str
+    inDegree: int = 0
+    outDegree: int = 0
+
+
+class DeadInternalLink(BaseModel):
+    """Internal link whose target returned 4xx/5xx or did not resolve."""
+
+    target: str
+    statusCode: Optional[int] = None
+    sourceCount: int = 0  # how many crawled pages link to it
+
+
+class LinkGraphSummary(BaseModel):
+    """Aggregated stats across the crawled site's internal link graph."""
+
+    totalEdges: int = 0
+    pages: list[LinkGraphPageStat] = Field(default_factory=list)
+    orphanPages: list[str] = Field(default_factory=list)  # in-degree 0
+    hubPages: list[str] = Field(default_factory=list)  # top in-degree
+    topAnchorTexts: list[str] = Field(default_factory=list)
+    deadLinks: list[DeadInternalLink] = Field(default_factory=list)
 
 
 class PerformanceMetric(BaseModel):
@@ -256,6 +293,7 @@ class CrawlData(BaseModel):
     crawledAt: str
     pages: list[CrawlPage] = Field(default_factory=list)
     performance: Optional[PerformanceSnapshot] = None
+    linkGraph: Optional[LinkGraphSummary] = None
 
 
 class AuditResult(BaseModel):

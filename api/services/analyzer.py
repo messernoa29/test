@@ -141,6 +141,8 @@ Si tu n'as pas assez de facteurs observables sur un axe (< 4/7) → dis-le dans 
 
 {schemas_block}
 
+{link_graph_block}
+
 ## Sortie STRICTE (aucun texte hors balises)
 
 <OVERVIEW_JSON>
@@ -405,6 +407,7 @@ def _run_overview(crawl: CrawlData, crawl_json: str) -> dict:
         crawl_json=crawl_json,
         performance_block=_format_performance(crawl),
         schemas_block=_format_schemas(crawl),
+        link_graph_block=_format_link_graph(crawl),
     )
     response = get_llm_client().generate(
         system=_SYSTEM, user_prompt=prompt, max_tokens=16000,
@@ -567,6 +570,50 @@ def _format_schemas(crawl: CrawlData) -> str:
     lines.append(
         "→ Utilise ces données comme source de vérité pour les findings "
         "schema dans l'axe `seo` (ne pas deviner, ne pas recommander ce qui est déjà présent)."
+    )
+    return "\n".join(lines)
+
+
+def _format_link_graph(crawl: CrawlData) -> str:
+    """Compact rendering of the internal link graph for the analyzer prompt."""
+    graph = crawl.linkGraph
+    if graph is None or graph.totalEdges == 0:
+        return (
+            "## Maillage interne (analyse Python, factuelle)\n"
+            "Aucun lien interne extrait — pages probablement isolées ou rendu JS bloquant."
+        )
+    lines = [
+        "## Maillage interne (analyse Python, factuelle)",
+        f"Total liens internes (toutes pages confondues) : {graph.totalEdges}",
+    ]
+    if graph.hubPages:
+        lines.append("### Hubs (top in-degree, pages les plus liées)")
+        for url in graph.hubPages:
+            stat = next((p for p in graph.pages if p.url == url), None)
+            indeg = stat.inDegree if stat else 0
+            lines.append(f"- {url} (in-degree {indeg})")
+    if graph.orphanPages:
+        lines.append(
+            f"### Pages orphelines ({len(graph.orphanPages)}) — aucun lien interne entrant détecté"
+        )
+        for url in graph.orphanPages[:10]:
+            lines.append(f"- {url}")
+        if len(graph.orphanPages) > 10:
+            lines.append(f"- … (+{len(graph.orphanPages) - 10} autres)")
+    if graph.topAnchorTexts:
+        lines.append("### Anchor texts les plus utilisés")
+        lines.append(", ".join(f'"{a}"' for a in graph.topAnchorTexts[:10]))
+    if graph.deadLinks:
+        lines.append(f"### Liens internes cassés ({len(graph.deadLinks)})")
+        for dl in graph.deadLinks[:10]:
+            status = dl.statusCode if dl.statusCode is not None else "no response"
+            lines.append(
+                f"- {dl.target} → {status} (lié depuis {dl.sourceCount} page(s))"
+            )
+    lines.append(
+        "→ Utilise ces données pour : findings d'orphan pages, sur-utilisation "
+        "d'anchors génériques (\"cliquez ici\"), liens cassés, distribution "
+        "déséquilibrée du jus interne. Ne pas inventer, citer les URLs vues ci-dessus."
     )
     return "\n".join(lines)
 

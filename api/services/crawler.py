@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections import deque
+from collections import Counter, deque
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -30,7 +30,14 @@ from xml.etree import ElementTree as ET
 import httpx
 from bs4 import BeautifulSoup
 
-from api.models import CrawlData, CrawlPage
+from api.models import (
+    CrawlData,
+    CrawlPage,
+    DeadInternalLink,
+    InternalLink,
+    LinkGraphPageStat,
+    LinkGraphSummary,
+)
 from api.services import playwright_fetcher, schema_detector
 
 logger = logging.getLogger(__name__)
@@ -39,10 +46,16 @@ USER_AGENT = (
     "Mozilla/5.0 (compatible; AuditBureauBot/0.1; +https://audit-bureau.local)"
 )
 REQUEST_TIMEOUT = 15.0
-MAX_PAGES = 25  # hard cap on fully-fetched pages
-MAX_DISCOVERY_LINKS = 120  # cap on URLs discovered before trimming
+MAX_PAGES = 50  # hard cap on fully-fetched pages
+MAX_DISCOVERY_LINKS = 200  # cap on URLs discovered before trimming
 HEADING_LIMIT = 8
 SNIPPET_LIMIT = 200
+MAX_LINKS_PER_PAGE = 200  # safety cap per page (mega-footers exist)
+ANCHOR_TEXT_LIMIT = 80
+DEAD_LINK_PROBE_LIMIT = 25  # max external HEAD probes for dead-link detection
+HUB_PAGES_TOP_N = 5
+ORPHAN_PAGES_LIMIT = 25
+TOP_ANCHOR_TEXTS_LIMIT = 15
 
 
 def crawl(url: str) -> CrawlData:
@@ -65,9 +78,11 @@ def crawl(url: str) -> CrawlData:
 
         pages: list[CrawlPage] = []
         for target in discovered[:MAX_PAGES]:
-            page = _fetch_page(client, target)
+            page = _fetch_page(client, target, origin)
             if page is not None:
                 pages.append(page)
+
+        link_graph = _build_link_graph(client, pages)
     finally:
         client.close()
 
@@ -81,6 +96,7 @@ def crawl(url: str) -> CrawlData:
         url=base,
         crawledAt=datetime.now(timezone.utc).isoformat(),
         pages=pages,
+        linkGraph=link_graph,
     )
 
 
@@ -282,7 +298,9 @@ def _parse_html(html: str):
         return BeautifulSoup(html, "html.parser")
 
 
-def _fetch_page(client: httpx.Client, url: str) -> Optional[CrawlPage]:
+def _fetch_page(
+    client: httpx.Client, url: str, origin: str = ""
+) -> Optional[CrawlPage]:
     html = _fetch_html(client, url)
     if html is None:
         return None
@@ -345,6 +363,8 @@ def _fetch_page(client: httpx.Client, url: str) -> Optional[CrawlPage]:
         logger.debug("Schema detection failed on %s: %s", url, e)
         schemas = []
 
+    internal_links = _extract_internal_links(soup, url, origin)
+
     return CrawlPage(
         url=url,
         title=title,
@@ -354,7 +374,156 @@ def _fetch_page(client: httpx.Client, url: str) -> Optional[CrawlPage]:
         textSnippet=snippet,
         schemas=schemas,
         renderedWithPlaywright=rendered_with_playwright,
+        internalLinks=internal_links,
+        internalLinksCount=len(internal_links),
     )
+
+
+def _extract_internal_links(
+    soup: BeautifulSoup, page_url: str, origin: str
+) -> list[InternalLink]:
+    """Collect same-origin <a href> with anchor text and rel."""
+    if not origin:
+        origin = f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}"
+    origin_netloc = urlparse(origin).netloc
+    seen: set[tuple[str, str]] = set()
+    out: list[InternalLink] = []
+    for anchor in soup.find_all("a", href=True):
+        href = (anchor.get("href") or "").strip()
+        if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
+            continue
+        absolute = _normalize(urljoin(page_url, href))
+        if not absolute:
+            continue
+        if urlparse(absolute).netloc != origin_netloc:
+            continue
+        if absolute == _normalize(page_url):
+            continue  # skip self-links
+        anchor_text = ""
+        try:
+            anchor_text = anchor.get_text(" ", strip=True)[:ANCHOR_TEXT_LIMIT]
+        except Exception:
+            anchor_text = ""
+        rel_attr = anchor.get("rel") or ""
+        if isinstance(rel_attr, list):
+            rel_attr = " ".join(rel_attr)
+        key = (absolute, anchor_text.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            InternalLink(
+                target=absolute,
+                anchorText=anchor_text,
+                rel=str(rel_attr).strip(),
+            )
+        )
+        if len(out) >= MAX_LINKS_PER_PAGE:
+            break
+    return out
+
+
+def _build_link_graph(
+    client: httpx.Client, pages: list[CrawlPage]
+) -> LinkGraphSummary:
+    """Compute in/out-degree, orphans, hubs, anchor text stats, dead links."""
+    if not pages:
+        return LinkGraphSummary()
+
+    crawled_urls = {_normalize(p.url) for p in pages}
+    in_degree: Counter[str] = Counter()
+    out_degree: dict[str, int] = {}
+    anchor_counts: Counter[str] = Counter()
+    # target -> list of (source, anchor)
+    edges_by_target: dict[str, list[tuple[str, str]]] = {}
+    total_edges = 0
+
+    for page in pages:
+        src = _normalize(page.url)
+        out_degree[src] = len(page.internalLinks)
+        for link in page.internalLinks:
+            tgt = _normalize(link.target)
+            if not tgt:
+                continue
+            total_edges += 1
+            if tgt in crawled_urls:
+                in_degree[tgt] += 1
+            edges_by_target.setdefault(tgt, []).append((src, link.anchorText))
+            if link.anchorText:
+                anchor_counts[link.anchorText.strip().lower()] += 1
+
+    # Per-page stats
+    page_stats: list[LinkGraphPageStat] = []
+    for url in crawled_urls:
+        page_stats.append(
+            LinkGraphPageStat(
+                url=url,
+                inDegree=in_degree.get(url, 0),
+                outDegree=out_degree.get(url, 0),
+            )
+        )
+
+    # Orphans = crawled pages with 0 internal in-links (excluding the homepage)
+    orphans = [
+        p.url
+        for p in page_stats
+        if p.inDegree == 0
+    ][:ORPHAN_PAGES_LIMIT]
+
+    # Hubs = top in-degree
+    hubs = sorted(page_stats, key=lambda p: p.inDegree, reverse=True)
+    hub_urls = [p.url for p in hubs if p.inDegree > 0][:HUB_PAGES_TOP_N]
+
+    # Top anchor texts (most reused → potential over-optimization or templating)
+    top_anchors = [
+        text for text, _ in anchor_counts.most_common(TOP_ANCHOR_TEXTS_LIMIT)
+    ]
+
+    # Dead-link probing — only on a sample of NON-crawled targets (avoid wasted
+    # HEADs on pages already known to be 200).
+    dead_links = _probe_dead_links(client, edges_by_target, crawled_urls)
+
+    return LinkGraphSummary(
+        totalEdges=total_edges,
+        pages=page_stats,
+        orphanPages=orphans,
+        hubPages=hub_urls,
+        topAnchorTexts=top_anchors,
+        deadLinks=dead_links,
+    )
+
+
+def _probe_dead_links(
+    client: httpx.Client,
+    edges_by_target: dict[str, list[tuple[str, str]]],
+    crawled_urls: set[str],
+) -> list[DeadInternalLink]:
+    """HEAD a sample of internal targets that weren't fully crawled."""
+    candidates = [t for t in edges_by_target.keys() if t not in crawled_urls]
+    # Most-linked first — broken hub links matter more than one-off references.
+    candidates.sort(key=lambda t: -len(edges_by_target[t]))
+    candidates = candidates[:DEAD_LINK_PROBE_LIMIT]
+    dead: list[DeadInternalLink] = []
+    for target in candidates:
+        status: Optional[int] = None
+        try:
+            resp = client.head(target, follow_redirects=True)
+            status = resp.status_code
+            if resp.status_code == 405:
+                # Some servers reject HEAD — fall back to GET
+                resp = client.get(target)
+                status = resp.status_code
+        except httpx.HTTPError:
+            status = None
+        if status is None or 400 <= status < 600:
+            dead.append(
+                DeadInternalLink(
+                    target=target,
+                    statusCode=status,
+                    sourceCount=len(edges_by_target[target]),
+                )
+            )
+    return dead
 
 
 def _extract_snippet(soup: BeautifulSoup) -> str:

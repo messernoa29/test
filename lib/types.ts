@@ -65,6 +65,33 @@ export interface MissingPage {
   priority: 'high' | 'medium' | 'low'
 }
 
+export interface InternalLink {
+  target: string
+  anchorText: string
+  rel: string
+}
+
+export interface LinkGraphPageStat {
+  url: string
+  inDegree: number
+  outDegree: number
+}
+
+export interface DeadInternalLink {
+  target: string
+  statusCode: number | null
+  sourceCount: number
+}
+
+export interface LinkGraphSummary {
+  totalEdges: number
+  pages: LinkGraphPageStat[]
+  orphanPages: string[]
+  hubPages: string[]
+  topAnchorTexts: string[]
+  deadLinks: DeadInternalLink[]
+}
+
 export interface CrawlData {
   domain: string
   url: string
@@ -77,7 +104,10 @@ export interface CrawlData {
     headings: string[]
     textSnippet: string
     renderedWithPlaywright?: boolean
+    internalLinks?: InternalLink[]
+    internalLinksCount?: number
   }>
+  linkGraph?: LinkGraphSummary
 }
 
 export interface AuditResult {
