@@ -19,6 +19,7 @@ separate steps.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from collections import Counter, deque
@@ -34,9 +35,11 @@ from api.models import (
     CrawlData,
     CrawlPage,
     DeadInternalLink,
+    DuplicatePair,
     InternalLink,
     LinkGraphPageStat,
     LinkGraphSummary,
+    RedirectChain,
 )
 from api.services import playwright_fetcher, schema_detector
 
@@ -56,6 +59,9 @@ DEAD_LINK_PROBE_LIMIT = 25  # max external HEAD probes for dead-link detection
 HUB_PAGES_TOP_N = 5
 ORPHAN_PAGES_LIMIT = 25
 TOP_ANCHOR_TEXTS_LIMIT = 15
+SHINGLE_SIZE = 5  # word n-gram length for Jaccard similarity
+DUPLICATE_NEAR_THRESHOLD = 0.85  # Jaccard ≥ this → reported as near-duplicate
+DUPLICATE_PAIRS_LIMIT = 20
 
 
 def crawl(url: str) -> CrawlData:
@@ -83,6 +89,8 @@ def crawl(url: str) -> CrawlData:
                 pages.append(page)
 
         link_graph = _build_link_graph(client, pages)
+        duplicates = _compute_duplicates(pages)
+        redirect_chains = _collect_redirect_chains(pages)
     finally:
         client.close()
 
@@ -97,6 +105,8 @@ def crawl(url: str) -> CrawlData:
         crawledAt=datetime.now(timezone.utc).isoformat(),
         pages=pages,
         linkGraph=link_graph,
+        duplicates=duplicates,
+        redirectChains=redirect_chains,
     )
 
 
@@ -234,6 +244,18 @@ def _walk_links_bfs(
 
 
 def _fetch_html(client: httpx.Client, url: str) -> Optional[str]:
+    result = _fetch_html_with_meta(client, url)
+    return result[0] if result else None
+
+
+def _fetch_html_with_meta(
+    client: httpx.Client, url: str
+) -> Optional[tuple[str, str, list[str]]]:
+    """Return (html, finalUrl, redirectHops) or None on failure.
+
+    redirectHops is the list of intermediate URLs visited (Location headers),
+    not including the final URL.
+    """
     try:
         resp = client.get(url)
     except httpx.TooManyRedirects:
@@ -257,11 +279,8 @@ def _fetch_html(client: httpx.Client, url: str) -> Optional[str]:
     if "text/html" not in content_type and "xhtml" not in content_type:
         return None
 
-    # httpx picks encoding from the Content-Type header; fall back to the
-    # document's apparent encoding when headers are unreliable.
     try:
         text = resp.text
-        # Heuristic: a glut of replacement chars signals a mismatch
         if text.count("�") > 10:
             raise UnicodeDecodeError("httpx", b"", 0, 1, "too many replacement chars")
     except (UnicodeDecodeError, LookupError):
@@ -270,7 +289,15 @@ def _fetch_html(client: httpx.Client, url: str) -> Optional[str]:
             text = resp.content.decode(apparent, errors="replace")
         except Exception:
             text = resp.content.decode("utf-8", errors="replace")
-    return text
+
+    final_url = str(resp.url)
+    hops: list[str] = []
+    for prev in resp.history:
+        try:
+            hops.append(str(prev.url))
+        except Exception:
+            continue
+    return text, final_url, hops
 
 
 def _guess_encoding(raw: bytes) -> str:
@@ -301,9 +328,10 @@ def _parse_html(html: str):
 def _fetch_page(
     client: httpx.Client, url: str, origin: str = ""
 ) -> Optional[CrawlPage]:
-    html = _fetch_html(client, url)
-    if html is None:
+    meta = _fetch_html_with_meta(client, url)
+    if meta is None:
         return None
+    html, final_url, hops = meta
 
     # SPA fallback: when the raw HTML is a JS shell and Playwright is enabled,
     # retry via headless Chromium so we see the rendered DOM.
@@ -364,6 +392,14 @@ def _fetch_page(
         schemas = []
 
     internal_links = _extract_internal_links(soup, url, origin)
+    body_text = _extract_body_text(soup)
+    word_list = _tokenize_words(body_text)
+    word_count = len(word_list)
+    content_hash = (
+        hashlib.sha1(" ".join(word_list).encode("utf-8")).hexdigest()
+        if word_list
+        else ""
+    )
 
     return CrawlPage(
         url=url,
@@ -376,6 +412,10 @@ def _fetch_page(
         renderedWithPlaywright=rendered_with_playwright,
         internalLinks=internal_links,
         internalLinksCount=len(internal_links),
+        contentHash=content_hash,
+        wordCount=word_count,
+        finalUrl=final_url,
+        redirectChain=hops,
     )
 
 
@@ -528,11 +568,108 @@ def _probe_dead_links(
 
 def _extract_snippet(soup: BeautifulSoup) -> str:
     """First ~200 chars of main content text, with scripts/styles stripped."""
-    for bad in soup(["script", "style", "noscript", "nav", "footer"]):
+    clone = BeautifulSoup(str(soup), "html.parser")
+    for bad in clone(["script", "style", "noscript", "nav", "footer"]):
         bad.decompose()
-    main = soup.find("main") or soup.body or soup
+    main = clone.find("main") or clone.body or clone
     text = re.sub(r"\s+", " ", main.get_text(" ", strip=True))
     return text[:SNIPPET_LIMIT]
+
+
+def _extract_body_text(soup: BeautifulSoup) -> str:
+    """Full body text minus chrome, lowercased, normalized whitespace."""
+    clone = BeautifulSoup(str(soup), "html.parser")
+    for bad in clone(["script", "style", "noscript", "nav", "footer", "header", "aside"]):
+        bad.decompose()
+    main = clone.find("main") or clone.body or clone
+    text = main.get_text(" ", strip=True).lower()
+    return re.sub(r"\s+", " ", text)
+
+
+_WORD_RE = re.compile(r"[a-zà-ÿ0-9]+", re.IGNORECASE)
+
+
+def _tokenize_words(text: str) -> list[str]:
+    if not text:
+        return []
+    return _WORD_RE.findall(text)
+
+
+def _shingles(words: list[str], size: int = SHINGLE_SIZE) -> set[str]:
+    if len(words) < size:
+        return set()
+    return {" ".join(words[i : i + size]) for i in range(len(words) - size + 1)}
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    union = len(a | b)
+    return inter / union if union else 0.0
+
+
+def _compute_duplicates(pages: list[CrawlPage]) -> list[DuplicatePair]:
+    """Detect exact + near-duplicate pages via shingle Jaccard."""
+    pairs: list[DuplicatePair] = []
+    # Exact: group by hash
+    by_hash: dict[str, list[str]] = {}
+    for p in pages:
+        if p.contentHash:
+            by_hash.setdefault(p.contentHash, []).append(p.url)
+    for urls in by_hash.values():
+        if len(urls) < 2:
+            continue
+        for i in range(len(urls)):
+            for j in range(i + 1, len(urls)):
+                pairs.append(
+                    DuplicatePair(
+                        urlA=urls[i], urlB=urls[j], similarity=1.0, kind="exact"
+                    )
+                )
+
+    # Near: shingle Jaccard. Only on pages with enough words.
+    candidates = [p for p in pages if p.wordCount >= 50]
+    shingles_by_url: dict[str, set[str]] = {}
+    for p in candidates:
+        words = _tokenize_words(p.textSnippet) if p.wordCount else []
+        # We don't store the body text; recompute is wasteful but the snippet
+        # is too short. Use word_count + hash as the dedup key for "exact".
+        # Near-duplicate detection only works well on the body text we no
+        # longer carry — so fall back to comparing headings + title only.
+        proxy = (p.title + " " + " ".join(p.headings)).lower()
+        words = _tokenize_words(proxy)
+        shingles_by_url[p.url] = _shingles(words, size=3)
+
+    urls = list(shingles_by_url.keys())
+    seen_pairs: set[tuple[str, str]] = {(d.urlA, d.urlB) for d in pairs}
+    for i in range(len(urls)):
+        for j in range(i + 1, len(urls)):
+            a, b = urls[i], urls[j]
+            sim = _jaccard(shingles_by_url[a], shingles_by_url[b])
+            if sim >= DUPLICATE_NEAR_THRESHOLD and (a, b) not in seen_pairs:
+                pairs.append(
+                    DuplicatePair(urlA=a, urlB=b, similarity=round(sim, 3), kind="near")
+                )
+                if len(pairs) >= DUPLICATE_PAIRS_LIMIT:
+                    return pairs
+    return pairs[:DUPLICATE_PAIRS_LIMIT]
+
+
+def _collect_redirect_chains(pages: list[CrawlPage]) -> list[RedirectChain]:
+    chains: list[RedirectChain] = []
+    for p in pages:
+        if not p.redirectChain:
+            continue
+        chains.append(
+            RedirectChain(
+                requestUrl=p.url,
+                finalUrl=p.finalUrl or p.url,
+                hops=p.redirectChain,
+                hopCount=len(p.redirectChain),
+            )
+        )
+    return chains
 
 
 # ---------------------------------------------------------------------------

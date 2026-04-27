@@ -235,6 +235,14 @@ class CrawlPage(BaseModel):
     renderedWithPlaywright: bool = False
     internalLinks: list[InternalLink] = Field(default_factory=list)
     internalLinksCount: int = 0
+    # Hash of the normalized text body — used to detect exact duplicates.
+    contentHash: str = ""
+    # Word count of the normalized text — proxy for thin content detection.
+    wordCount: int = 0
+    # Final URL after redirects (may differ from request URL).
+    finalUrl: str = ""
+    # Redirect hops between request URL and final URL (each hop = one Location).
+    redirectChain: list[str] = Field(default_factory=list)
 
 
 class LinkGraphPageStat(BaseModel):
@@ -262,6 +270,24 @@ class LinkGraphSummary(BaseModel):
     hubPages: list[str] = Field(default_factory=list)  # top in-degree
     topAnchorTexts: list[str] = Field(default_factory=list)
     deadLinks: list[DeadInternalLink] = Field(default_factory=list)
+
+
+class DuplicatePair(BaseModel):
+    """Two pages whose content is similar above a threshold."""
+
+    urlA: str
+    urlB: str
+    similarity: float  # 0.0 – 1.0 (Jaccard on shingles)
+    kind: str = "near"  # "exact" (same hash) | "near" (Jaccard high)
+
+
+class RedirectChain(BaseModel):
+    """A page reached only after one or more redirects."""
+
+    requestUrl: str
+    finalUrl: str
+    hops: list[str] = Field(default_factory=list)
+    hopCount: int = 0
 
 
 class PerformanceMetric(BaseModel):
@@ -294,6 +320,8 @@ class CrawlData(BaseModel):
     pages: list[CrawlPage] = Field(default_factory=list)
     performance: Optional[PerformanceSnapshot] = None
     linkGraph: Optional[LinkGraphSummary] = None
+    duplicates: list[DuplicatePair] = Field(default_factory=list)
+    redirectChains: list[RedirectChain] = Field(default_factory=list)
 
 
 class AuditResult(BaseModel):

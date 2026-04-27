@@ -143,6 +143,8 @@ Si tu n'as pas assez de facteurs observables sur un axe (< 4/7) → dis-le dans 
 
 {link_graph_block}
 
+{quality_block}
+
 ## Sortie STRICTE (aucun texte hors balises)
 
 <OVERVIEW_JSON>
@@ -408,6 +410,7 @@ def _run_overview(crawl: CrawlData, crawl_json: str) -> dict:
         performance_block=_format_performance(crawl),
         schemas_block=_format_schemas(crawl),
         link_graph_block=_format_link_graph(crawl),
+        quality_block=_format_quality(crawl),
     )
     response = get_llm_client().generate(
         system=_SYSTEM, user_prompt=prompt, max_tokens=16000,
@@ -570,6 +573,54 @@ def _format_schemas(crawl: CrawlData) -> str:
     lines.append(
         "→ Utilise ces données comme source de vérité pour les findings "
         "schema dans l'axe `seo` (ne pas deviner, ne pas recommander ce qui est déjà présent)."
+    )
+    return "\n".join(lines)
+
+
+def _format_quality(crawl: CrawlData) -> str:
+    """Duplicates, redirect chains, thin pages — factual block."""
+    lines = ["## Qualité technique on-page (analyse Python, factuelle)"]
+
+    # Thin content
+    thin = [p for p in crawl.pages if 0 < p.wordCount < 300]
+    if thin:
+        lines.append(f"### Pages thin content (< 300 mots) — {len(thin)}")
+        for p in thin[:10]:
+            lines.append(f"- {p.url} ({p.wordCount} mots)")
+
+    # Duplicates
+    if crawl.duplicates:
+        exact = [d for d in crawl.duplicates if d.kind == "exact"]
+        near = [d for d in crawl.duplicates if d.kind == "near"]
+        lines.append(
+            f"### Duplicate content — {len(exact)} exact, {len(near)} near"
+        )
+        for d in (exact + near)[:10]:
+            lines.append(
+                f"- [{d.kind}] {d.urlA} ↔ {d.urlB} (similarity {d.similarity})"
+            )
+
+    # Redirect chains
+    if crawl.redirectChains:
+        long_chains = [c for c in crawl.redirectChains if c.hopCount >= 1]
+        if long_chains:
+            lines.append(
+                f"### Redirections — {len(long_chains)} URL(s) atteignent "
+                "leur cible via une redirection"
+            )
+            for c in long_chains[:8]:
+                lines.append(
+                    f"- {c.requestUrl} → {c.finalUrl} ({c.hopCount} hop(s))"
+                )
+
+    if len(lines) == 1:
+        lines.append(
+            "Aucun signal qualité on-page détecté (pas de thin content < 300 mots, "
+            "pas de duplicates, pas de chaînes de redirection)."
+        )
+    lines.append(
+        "→ Findings issus de ces données vont dans la section `seo` ou `content` "
+        "(thin → content, duplicates/redirects → seo). Ne pas inventer."
     )
     return "\n".join(lines)
 

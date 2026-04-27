@@ -92,6 +92,20 @@ export interface LinkGraphSummary {
   deadLinks: DeadInternalLink[]
 }
 
+export interface DuplicatePair {
+  urlA: string
+  urlB: string
+  similarity: number
+  kind: 'exact' | 'near'
+}
+
+export interface RedirectChain {
+  requestUrl: string
+  finalUrl: string
+  hops: string[]
+  hopCount: number
+}
+
 export interface CrawlData {
   domain: string
   url: string
@@ -106,8 +120,14 @@ export interface CrawlData {
     renderedWithPlaywright?: boolean
     internalLinks?: InternalLink[]
     internalLinksCount?: number
+    contentHash?: string
+    wordCount?: number
+    finalUrl?: string
+    redirectChain?: string[]
   }>
   linkGraph?: LinkGraphSummary
+  duplicates?: DuplicatePair[]
+  redirectChains?: RedirectChain[]
 }
 
 export interface AuditResult {
