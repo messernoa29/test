@@ -36,8 +36,13 @@ export function AuditPendingView({ initial }: Props) {
     return <FailedView job={job} />
   }
 
-  // Approximation: crawl ~20s, analyze ~40s, render = wait for completion
-  const activeIdx = elapsed < 20 ? 0 : elapsed < 60 ? 1 : 2
+  // Approximation: crawl ~60s (50 pages parallèles), analyse LLM ~3-5min, finalisation
+  const activeIdx = elapsed < 60 ? 0 : elapsed < 240 ? 1 : 2
+
+  const minutes = Math.floor(elapsed / 60)
+  const seconds = elapsed % 60
+  const elapsedDisplay =
+    minutes > 0 ? `${minutes}min ${seconds.toString().padStart(2, '0')}s` : `${seconds}s`
 
   return (
     <div className="max-w-3xl mx-auto px-8 py-12">
@@ -71,11 +76,11 @@ export function AuditPendingView({ initial }: Props) {
       </ol>
 
       <div className="grid grid-cols-2 gap-3 mb-6 text-sm">
-        <Stat label="Temps écoulé" value={`${elapsed}s`} />
+        <Stat label="Temps écoulé" value={elapsedDisplay} />
         <Stat
           label="Durée estimée"
-          value="40 à 90 s"
-          hint="Variable selon la taille du site"
+          value="3 à 8 min"
+          hint="50 pages crawlées + analyse IA approfondie"
         />
       </div>
 
