@@ -1,25 +1,59 @@
-import { notFound } from 'next/navigation'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { notFound, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { getAudit, pdfUrl, xlsxUrl } from '@/lib/api'
+import { AuthRequiredError, getAudit, pdfUrl, xlsxUrl } from '@/lib/api'
 import type { AuditJobDetail } from '@/lib/types'
 import { AuditActions } from '@/components/audit/AuditActions'
 import { AuditDetailView } from '@/components/audit/AuditDetailView'
 import { AuditPendingView } from '@/components/audit/AuditPendingView'
 
-interface PageProps {
-  params: { id: string }
-}
+export default function AuditDetailPage() {
+  const params = useParams<{ id: string }>()
+  const id = params?.id
+  const [job, setJob] = useState<AuditJobDetail | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-export const dynamic = 'force-dynamic'
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    getAudit(id)
+      .then((j) => {
+        if (!cancelled) setJob(j)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        if (e instanceof AuthRequiredError) return
+        const msg = (e as Error).message ?? ''
+        if (msg.includes('not found') || msg.includes('404')) {
+          notFound()
+          return
+        }
+        setError(msg || 'Erreur de chargement')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
-export default async function AuditDetailPage({ params }: PageProps) {
-  let job: AuditJobDetail
-  try {
-    job = await getAudit(params.id)
-  } catch (e) {
-    const msg = (e as Error).message ?? ''
-    if (msg.includes('not found') || msg.includes('404')) notFound()
-    throw e
+  if (error) {
+    return (
+      <div className="max-w-2xl mx-auto px-8 py-16 text-text-secondary">
+        <h1 className="text-xl font-semibold text-text-primary mb-2">
+          Impossible de charger l&apos;audit
+        </h1>
+        <p className="text-sm">{error}</p>
+      </div>
+    )
+  }
+
+  if (!job) {
+    return (
+      <div className="max-w-2xl mx-auto px-8 py-16 text-text-secondary text-sm">
+        Chargement…
+      </div>
+    )
   }
 
   const archived = job.archived === true
