@@ -319,6 +319,7 @@ class CrawlData(BaseModel):
     crawledAt: str
     pages: list[CrawlPage] = Field(default_factory=list)
     performance: Optional[PerformanceSnapshot] = None
+    performanceExtra: list[PerformanceSnapshot] = Field(default_factory=list)
     linkGraph: Optional[LinkGraphSummary] = None
     duplicates: list[DuplicatePair] = Field(default_factory=list)
     redirectChains: list[RedirectChain] = Field(default_factory=list)

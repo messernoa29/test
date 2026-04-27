@@ -703,6 +703,27 @@ def _format_performance(crawl: CrawlData) -> str:
         if m.threshold:
             parts.append(f"seuil={m.threshold}")
         lines.append(" · ".join(parts))
+    extras = list(getattr(crawl, "performanceExtra", []) or [])
+    if extras:
+        lines.append("### Mesures additionnelles (pages hub)")
+        for snap in extras:
+            if snap.source == "unavailable":
+                continue
+            score_part = (
+                f" — score {snap.performanceScore}/100"
+                if snap.performanceScore is not None
+                else ""
+            )
+            lines.append(f"- {snap.url} (source={snap.source}{score_part})")
+            for m in snap.metrics:
+                parts = [f"  · **{m.name}**"]
+                if m.fieldValue is not None:
+                    parts.append(f"field p75={m.fieldValue}{_unit_for(m.name)}")
+                if m.labValue is not None:
+                    parts.append(f"lab={m.labValue}{_unit_for(m.name)}")
+                if m.rating:
+                    parts.append(f"rating={m.rating}")
+                lines.append(" · ".join(parts))
     lines.append(
         "→ Base le score de l'axe `performance` sur ces VALEURS RÉELLES. "
         "Rappelle dans le verdict que ce sont des mesures (CrUX/Lighthouse), "

@@ -77,11 +77,28 @@ def _run(job_id: str, url: str) -> None:
 
         # Enrich with real Core Web Vitals before analysis. Falls back to
         # "unavailable" snapshot if the API key is absent or the call fails.
-        perf = pagespeed.fetch_performance(crawl_data.url, strategy="mobile")
-        crawl_data = crawl_data.model_copy(update={"performance": perf})
-        logger.info(
-            "PSI for %s: source=%s score=%s metrics=%d",
-            crawl_data.domain, perf.source, perf.performanceScore, len(perf.metrics),
+        # Strategy: PSI on the home + the top 2 hub pages (most internally
+        # linked) so the analyzer gets variety, not just the landing page.
+        psi_targets = [crawl_data.url]
+        if crawl_data.linkGraph and crawl_data.linkGraph.hubPages:
+            for hub in crawl_data.linkGraph.hubPages[:2]:
+                if hub != crawl_data.url and hub not in psi_targets:
+                    psi_targets.append(hub)
+        perf_snapshots = []
+        for target in psi_targets:
+            snap = pagespeed.fetch_performance(target, strategy="mobile")
+            perf_snapshots.append(snap)
+            logger.info(
+                "PSI for %s: source=%s score=%s metrics=%d",
+                target, snap.source, snap.performanceScore, len(snap.metrics),
+            )
+        # Keep the home snapshot in CrawlData.performance for backward compat;
+        # extras are merged into the analyzer prompt via the formatter.
+        crawl_data = crawl_data.model_copy(
+            update={
+                "performance": perf_snapshots[0],
+                "performanceExtra": perf_snapshots[1:],
+            }
         )
 
         audit = analyzer.analyze(crawl_data)
