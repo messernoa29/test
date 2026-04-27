@@ -20,9 +20,16 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Sync Playwright + multi-threaded crawling don't mix well — Chromium launch
+# is heavy and concurrent browsers compete for resources on small instances.
+# Serialize fetches behind a single lock; throughput drops slightly but
+# correctness and memory stay predictable.
+_FETCH_LOCK = threading.Lock()
 
 _PLAYWRIGHT_TIMEOUT_MS = 15_000  # per-page hard cap
 _SETTLE_DELAY_MS = 800           # time to let late renders finish
@@ -70,7 +77,7 @@ def fetch_rendered(url: str) -> Optional[str]:
     from playwright.sync_api import sync_playwright
 
     try:
-        with sync_playwright() as pw:
+        with _FETCH_LOCK, sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             try:
                 context = browser.new_context(

@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 from collections import Counter, deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -62,6 +64,7 @@ TOP_ANCHOR_TEXTS_LIMIT = 15
 SHINGLE_SIZE = 5  # word n-gram length for Jaccard similarity
 DUPLICATE_NEAR_THRESHOLD = 0.85  # Jaccard ≥ this → reported as near-duplicate
 DUPLICATE_PAIRS_LIMIT = 20
+CRAWL_CONCURRENCY = int(os.getenv("CRAWL_CONCURRENCY", "8"))
 
 
 def crawl(url: str) -> CrawlData:
@@ -82,11 +85,8 @@ def crawl(url: str) -> CrawlData:
         discovered = _discover_urls(client, origin, base)
         logger.info("Discovered %d candidate URLs for %s", len(discovered), origin)
 
-        pages: list[CrawlPage] = []
-        for target in discovered[:MAX_PAGES]:
-            page = _fetch_page(client, target, origin)
-            if page is not None:
-                pages.append(page)
+        targets = discovered[:MAX_PAGES]
+        pages = _fetch_pages_parallel(client, targets, origin)
 
         link_graph = _build_link_graph(client, pages)
         duplicates = _compute_duplicates(pages)
@@ -323,6 +323,33 @@ def _parse_html(html: str):
     except Exception as e:
         logger.debug("lxml parse failed (%s), falling back to html.parser", e)
         return BeautifulSoup(html, "html.parser")
+
+
+def _fetch_pages_parallel(
+    client: httpx.Client, targets: list[str], origin: str
+) -> list[CrawlPage]:
+    """Fetch all target URLs in parallel and preserve discovery order in output.
+
+    httpx.Client is thread-safe for sending requests. Playwright fallbacks are
+    serialized via a lock inside the fetcher to avoid concurrent Chromium
+    launches.
+    """
+    if not targets:
+        return []
+    results: dict[str, Optional[CrawlPage]] = {}
+    workers = max(1, min(CRAWL_CONCURRENCY, len(targets)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_to_url = {
+            pool.submit(_fetch_page, client, url, origin): url for url in targets
+        }
+        for fut in future_to_url:
+            url = future_to_url[fut]
+            try:
+                results[url] = fut.result()
+            except Exception as e:
+                logger.debug("Worker error on %s: %s", url, e)
+                results[url] = None
+    return [results[u] for u in targets if results.get(u) is not None]
 
 
 def _fetch_page(
