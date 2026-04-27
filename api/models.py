@@ -223,6 +223,25 @@ class InternalLink(BaseModel):
     rel: str = ""  # raw "rel" attribute (nofollow, sponsored, ugc...)
 
 
+class HreflangEntry(BaseModel):
+    """One <link rel="alternate" hreflang="..."> tag."""
+
+    lang: str
+    href: str
+
+
+class ImageAsset(BaseModel):
+    """One <img> tag observed on a page."""
+
+    src: str
+    alt: Optional[str] = None  # None when attribute missing entirely
+    width: Optional[int] = None
+    height: Optional[int] = None
+    loading: str = ""  # "lazy" | "eager" | ""
+    fileFormat: str = ""  # "webp" | "avif" | "jpg" | "png" | "gif" | "svg" | ""
+    isInlineSvg: bool = False
+
+
 class CrawlPage(BaseModel):
     url: str
     title: str = ""
@@ -243,6 +262,17 @@ class CrawlPage(BaseModel):
     finalUrl: str = ""
     # Redirect hops between request URL and final URL (each hop = one Location).
     redirectChain: list[str] = Field(default_factory=list)
+    # Canonical URL declared by the page (<link rel="canonical">).
+    canonical: Optional[str] = None
+    # robots meta directives ("index,follow" / "noindex" / etc.).
+    robotsMeta: str = ""
+    # hreflang tags declared on the page.
+    hreflang: list[HreflangEntry] = Field(default_factory=list)
+    # Lang attribute on <html>.
+    htmlLang: str = ""
+    # Image inventory.
+    images: list[ImageAsset] = Field(default_factory=list)
+    imagesWithoutAlt: int = 0
 
 
 class LinkGraphPageStat(BaseModel):

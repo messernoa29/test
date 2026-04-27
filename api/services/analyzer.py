@@ -145,6 +145,8 @@ Si tu n'as pas assez de facteurs observables sur un axe (< 4/7) → dis-le dans 
 
 {quality_block}
 
+{technical_block}
+
 ## Sortie STRICTE (aucun texte hors balises)
 
 <OVERVIEW_JSON>
@@ -411,6 +413,7 @@ def _run_overview(crawl: CrawlData, crawl_json: str) -> dict:
         schemas_block=_format_schemas(crawl),
         link_graph_block=_format_link_graph(crawl),
         quality_block=_format_quality(crawl),
+        technical_block=_format_technical(crawl),
     )
     response = get_llm_client().generate(
         system=_SYSTEM, user_prompt=prompt, max_tokens=16000,
@@ -573,6 +576,101 @@ def _format_schemas(crawl: CrawlData) -> str:
     lines.append(
         "→ Utilise ces données comme source de vérité pour les findings "
         "schema dans l'axe `seo` (ne pas deviner, ne pas recommander ce qui est déjà présent)."
+    )
+    return "\n".join(lines)
+
+
+def _format_technical(crawl: CrawlData) -> str:
+    """Canonicals, robots meta, hreflang coverage, image hygiene."""
+    lines = ["## Technical SEO on-page (analyse Python, factuelle)"]
+
+    # Canonicals
+    no_canon = [p for p in crawl.pages if not p.canonical]
+    bad_canon = [
+        p for p in crawl.pages
+        if p.canonical and p.canonical not in (p.url, p.finalUrl)
+    ]
+    lines.append(f"### Canonicals — {len(crawl.pages) - len(no_canon)}/{len(crawl.pages)} pages avec <link rel=\"canonical\">")
+    if no_canon:
+        lines.append(f"Pages SANS canonical ({len(no_canon)}) :")
+        for p in no_canon[:8]:
+            lines.append(f"- {p.url}")
+    if bad_canon:
+        lines.append(f"Pages avec canonical pointant AILLEURS (potentiel duplicate ou erreur) :")
+        for p in bad_canon[:8]:
+            lines.append(f"- {p.url} → canonical={p.canonical}")
+
+    # Robots meta
+    noindex = [p for p in crawl.pages if "noindex" in p.robotsMeta]
+    if noindex:
+        lines.append(f"### Pages noindex ({len(noindex)}) — vérifier que c'est intentionnel")
+        for p in noindex[:8]:
+            lines.append(f"- {p.url} (robots={p.robotsMeta})")
+
+    # Hreflang
+    pages_with_hreflang = [p for p in crawl.pages if p.hreflang]
+    if pages_with_hreflang:
+        lines.append(
+            f"### Hreflang détecté sur {len(pages_with_hreflang)}/{len(crawl.pages)} pages"
+        )
+        sample = pages_with_hreflang[0]
+        langs = ", ".join(sorted({h.lang for h in sample.hreflang}))
+        lines.append(f"Langues déclarées (échantillon {sample.url}) : {langs}")
+        # Validation: x-default present, self-reference present, two-way?
+        all_langs = sorted({h.lang for p in pages_with_hreflang for h in p.hreflang})
+        if "x-default" not in all_langs:
+            lines.append("⚠ Pas de `x-default` détecté — recommandé par Google.")
+    elif crawl.pages and any(p.htmlLang and "-" in p.htmlLang for p in crawl.pages):
+        lines.append("### Hreflang absent — pas de tag `alternate hreflang` détecté")
+        lines.append("Le site utilise des langs régionalisés mais ne déclare pas hreflang : risque de contenu dupliqué inter-pays.")
+
+    # html lang
+    html_langs = sorted({p.htmlLang for p in crawl.pages if p.htmlLang})
+    if html_langs:
+        lines.append(f"### `<html lang>` observés : {', '.join(html_langs)}")
+
+    # Images
+    total_imgs = sum(len(p.images) for p in crawl.pages)
+    no_alt = sum(p.imagesWithoutAlt for p in crawl.pages)
+    if total_imgs:
+        modern = sum(
+            1 for p in crawl.pages for i in p.images
+            if i.fileFormat in ("webp", "avif")
+        )
+        legacy = sum(
+            1 for p in crawl.pages for i in p.images
+            if i.fileFormat in ("jpg", "jpeg", "png")
+        )
+        no_dim = sum(
+            1 for p in crawl.pages for i in p.images
+            if not i.isInlineSvg and (i.width is None or i.height is None)
+        )
+        no_lazy = sum(
+            1 for p in crawl.pages for i in p.images
+            if not i.isInlineSvg and i.loading != "lazy"
+        )
+        lines.append(
+            f"### Images — {total_imgs} balises <img> sur {len(crawl.pages)} pages"
+        )
+        lines.append(
+            f"- Sans attribut `alt` (CRITIQUE accessibilité + SEO) : {no_alt}"
+        )
+        lines.append(
+            f"- Formats modernes (webp/avif) : {modern} · legacy (jpg/png) : {legacy}"
+        )
+        lines.append(
+            f"- Sans width/height (CLS risk) : {no_dim}"
+        )
+        lines.append(
+            f"- Sans `loading=\"lazy\"` (perf) : {no_lazy}"
+        )
+
+    if len(lines) == 1:
+        lines.append("Aucun signal technique on-page anormal détecté.")
+    lines.append(
+        "→ Findings issus de ces données vont dans `seo` (canonicals, hreflang, "
+        "robots) et `performance`/`content` (images sans alt → ux+content, "
+        "formats legacy + no lazy → performance). Cite les URLs/comptes vus ci-dessus."
     )
     return "\n".join(lines)
 

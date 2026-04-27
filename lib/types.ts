@@ -124,10 +124,31 @@ export interface CrawlData {
     wordCount?: number
     finalUrl?: string
     redirectChain?: string[]
+    canonical?: string | null
+    robotsMeta?: string
+    hreflang?: HreflangEntry[]
+    htmlLang?: string
+    images?: ImageAsset[]
+    imagesWithoutAlt?: number
   }>
   linkGraph?: LinkGraphSummary
   duplicates?: DuplicatePair[]
   redirectChains?: RedirectChain[]
+}
+
+export interface HreflangEntry {
+  lang: string
+  href: string
+}
+
+export interface ImageAsset {
+  src: string
+  alt: string | null
+  width: number | null
+  height: number | null
+  loading: string
+  fileFormat: string
+  isInlineSvg: boolean
 }
 
 export interface AuditResult {

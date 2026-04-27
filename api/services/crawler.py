@@ -38,6 +38,8 @@ from api.models import (
     CrawlPage,
     DeadInternalLink,
     DuplicatePair,
+    HreflangEntry,
+    ImageAsset,
     InternalLink,
     LinkGraphPageStat,
     LinkGraphSummary,
@@ -427,6 +429,12 @@ def _fetch_page(
         if word_list
         else ""
     )
+    canonical = _extract_canonical(soup, url)
+    robots_meta = _extract_robots_meta(soup)
+    hreflang = _extract_hreflang(soup, url)
+    html_lang = _extract_html_lang(soup)
+    images = _extract_images(soup, url)
+    images_without_alt = sum(1 for img in images if img.alt is None)
 
     return CrawlPage(
         url=url,
@@ -443,7 +451,110 @@ def _fetch_page(
         wordCount=word_count,
         finalUrl=final_url,
         redirectChain=hops,
+        canonical=canonical,
+        robotsMeta=robots_meta,
+        hreflang=hreflang,
+        htmlLang=html_lang,
+        images=images,
+        imagesWithoutAlt=images_without_alt,
     )
+
+
+def _extract_canonical(soup: BeautifulSoup, page_url: str) -> Optional[str]:
+    link = soup.find("link", rel=lambda v: v and "canonical" in (v if isinstance(v, list) else [v]))
+    if link is None:
+        return None
+    href = link.get("href")
+    if not href or not isinstance(href, str):
+        return None
+    return _normalize(urljoin(page_url, href.strip()))
+
+
+def _extract_robots_meta(soup: BeautifulSoup) -> str:
+    meta = soup.find("meta", attrs={"name": re.compile("^robots$", re.I)})
+    if meta is None:
+        return ""
+    content = meta.get("content")
+    return content.strip().lower() if isinstance(content, str) else ""
+
+
+def _extract_hreflang(soup: BeautifulSoup, page_url: str) -> list[HreflangEntry]:
+    out: list[HreflangEntry] = []
+    seen: set[tuple[str, str]] = set()
+    for link in soup.find_all("link", rel=lambda v: v and "alternate" in (v if isinstance(v, list) else [v])):
+        lang = link.get("hreflang")
+        href = link.get("href")
+        if not lang or not href or not isinstance(lang, str) or not isinstance(href, str):
+            continue
+        absolute = _normalize(urljoin(page_url, href.strip()))
+        key = (lang.strip().lower(), absolute)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(HreflangEntry(lang=lang.strip(), href=absolute))
+    return out
+
+
+def _extract_html_lang(soup: BeautifulSoup) -> str:
+    html_tag = soup.find("html")
+    if html_tag is None:
+        return ""
+    lang = html_tag.get("lang")
+    return lang.strip() if isinstance(lang, str) else ""
+
+
+_IMG_FORMAT_RE = re.compile(r"\.([a-z0-9]{2,5})(?:[?#].*)?$", re.I)
+
+
+def _extract_images(soup: BeautifulSoup, page_url: str) -> list[ImageAsset]:
+    out: list[ImageAsset] = []
+    for img in soup.find_all("img"):
+        src = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
+        if not src or not isinstance(src, str):
+            # SVG inline (no src)
+            if img.find("use") or img.name == "svg":
+                out.append(ImageAsset(src="", isInlineSvg=True, fileFormat="svg"))
+            continue
+        absolute = _normalize(urljoin(page_url, src.strip()))
+        if not absolute:
+            absolute = src.strip()
+        alt = img.get("alt")
+        # Distinguish missing alt (None) vs empty alt (decorative, "").
+        alt_value: Optional[str]
+        if alt is None:
+            alt_value = None
+        elif isinstance(alt, str):
+            alt_value = alt
+        else:
+            alt_value = None
+        width = _safe_int(img.get("width"))
+        height = _safe_int(img.get("height"))
+        loading_attr = img.get("loading") or ""
+        loading = loading_attr.strip().lower() if isinstance(loading_attr, str) else ""
+        fmt = ""
+        m = _IMG_FORMAT_RE.search(absolute)
+        if m:
+            fmt = m.group(1).lower()
+        out.append(
+            ImageAsset(
+                src=absolute,
+                alt=alt_value,
+                width=width,
+                height=height,
+                loading=loading,
+                fileFormat=fmt,
+            )
+        )
+    return out
+
+
+def _safe_int(v: object) -> Optional[int]:
+    if v is None:
+        return None
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def _extract_internal_links(
