@@ -1,9 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { getAudit } from '@/lib/api'
 import type { AuditJobDetail } from '@/lib/types'
 
 interface Props {
@@ -21,10 +19,8 @@ const STEPS = [
 ] as const
 
 export function AuditPendingView({ initial }: Props) {
-  const router = useRouter()
-  const [job, setJob] = useState<AuditJobDetail>(initial)
+  const job = initial
   const [elapsed, setElapsed] = useState(0)
-  const [pollFailures, setPollFailures] = useState(0)
 
   useEffect(() => {
     const createdAtMs =
@@ -35,35 +31,6 @@ export function AuditPendingView({ initial }: Props) {
     const id = setInterval(update, 500)
     return () => clearInterval(id)
   }, [initial.createdAt])
-
-  useEffect(() => {
-    if (job.status !== 'pending') return
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    const poll = async () => {
-      try {
-        const next = await getAudit(job.id)
-        if (cancelled) return
-        setPollFailures(0)
-        setJob(next)
-        if (next.status === 'done') {
-          router.refresh()
-          return
-        }
-      } catch {
-        if (cancelled) return
-        setPollFailures((n) => n + 1)
-      }
-      if (!cancelled) timer = setTimeout(poll, 3000)
-    }
-
-    timer = setTimeout(poll, 3000)
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
-  }, [job.id, job.status, router])
 
   if (job.status === 'failed') {
     return <FailedView job={job} />
@@ -123,13 +90,6 @@ export function AuditPendingView({ initial }: Props) {
         </Link>
       </div>
 
-      {pollFailures >= 3 && (
-        <div className="mt-4 border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] rounded-md p-3 text-xs text-[var(--status-warning-text)]">
-          Impossible de contacter le serveur depuis {pollFailures * 3}s. L&apos;analyse
-          peut continuer côté serveur — réessayez de rafraîchir la page dans quelques
-          instants.
-        </div>
-      )}
     </div>
   )
 }

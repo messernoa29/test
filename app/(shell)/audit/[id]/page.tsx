@@ -18,11 +18,17 @@ export default function AuditDetailPage() {
   useEffect(() => {
     if (!id) return
     let cancelled = false
-    getAudit(id)
-      .then((j) => {
-        if (!cancelled) setJob(j)
-      })
-      .catch((e) => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const tick = async () => {
+      try {
+        const next = await getAudit(id)
+        if (cancelled) return
+        setJob(next)
+        if (next.status === 'pending') {
+          timer = setTimeout(tick, 1500)
+        }
+      } catch (e) {
         if (cancelled) return
         if (e instanceof AuthRequiredError) return
         const msg = (e as Error).message ?? ''
@@ -31,9 +37,13 @@ export default function AuditDetailPage() {
           return
         }
         setError(msg || 'Erreur de chargement')
-      })
+      }
+    }
+
+    tick()
     return () => {
       cancelled = true
+      if (timer) clearTimeout(timer)
     }
   }, [id])
 
