@@ -152,6 +152,18 @@ export async function getAudit(id: string): Promise<AuditJobDetail> {
   return request<AuditJobDetail>(`/audit/${encodeURIComponent(id)}`)
 }
 
+export interface AuditLogLine {
+  t: number
+  msg: string
+}
+
+export async function getAuditLogs(id: string): Promise<AuditLogLine[]> {
+  const res = await request<{ lines: AuditLogLine[] }>(
+    `/audit/${encodeURIComponent(id)}/logs`,
+  )
+  return res.lines ?? []
+}
+
 export async function listRecent(includeArchived = false): Promise<AuditJobSummary[]> {
   const qs = includeArchived ? '?includeArchived=true' : ''
   return request<AuditJobSummary[]>(`/audit/recent${qs}`)

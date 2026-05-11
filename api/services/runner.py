@@ -64,16 +64,21 @@ def shutdown_executor(wait: bool = False) -> None:
 
 def _run(job_id: str, url: str, max_pages: int = 50) -> None:
     store = get_store()
+    from api.services import progress
+    progress.add(job_id, f"Audit lancé sur {url} (max {max_pages} pages)")
     # try/finally guarantees we never leave a job in `pending` silently if
     # the thread dies from something unexpected (OSError, MemoryError, ...).
     success = False
     try:
+        progress.add(job_id, "Crawl du site en cours…")
         crawl_data = crawler.crawl(url, max_pages=max_pages)
         if not crawl_data.pages:
+            progress.add(job_id, "Aucune page récupérée — échec.")
             store.fail_job(
                 job_id, "Le site n'a pas répondu ou aucune page n'a été trouvée."
             )
             return
+        progress.add(job_id, f"Crawl terminé : {len(crawl_data.pages)} pages analysées")
 
         # Enrich with real Core Web Vitals before analysis. Falls back to
         # "unavailable" snapshot if the API key is absent or the call fails.
@@ -84,6 +89,7 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
             for hub in crawl_data.linkGraph.hubPages[:2]:
                 if hub != crawl_data.url and hub not in psi_targets:
                     psi_targets.append(hub)
+        progress.add(job_id, f"PageSpeed Insights sur {len(psi_targets)} page(s)…")
         perf_snapshots = []
         for target in psi_targets:
             snap = pagespeed.fetch_performance(target, strategy="mobile")
@@ -92,6 +98,11 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
                 "PSI for %s: source=%s score=%s metrics=%d",
                 target, snap.source, snap.performanceScore, len(snap.metrics),
             )
+        progress.add(
+            job_id,
+            f"PageSpeed : {perf_snapshots[0].source}"
+            + (f", score {perf_snapshots[0].performanceScore}/100" if perf_snapshots[0].performanceScore is not None else ""),
+        )
         # Keep the home snapshot in CrawlData.performance for backward compat;
         # extras are merged into the analyzer prompt via the formatter.
         crawl_data = crawl_data.model_copy(
@@ -101,7 +112,9 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
             }
         )
 
-        audit = analyzer.analyze(crawl_data)
+        progress.add(job_id, "Analyse IA des 6 axes (Gemini)…")
+        audit = analyzer.analyze(crawl_data, on_progress=lambda m: progress.add(job_id, m))
+        progress.add(job_id, "Analyse IA terminée — assemblage du rapport")
         enriched_pages = _merge_page_technical(audit.pages, crawl_data)
         cultural = _build_cultural_audit(crawl_data)
         geo = _build_geo_audit(crawl_data)
@@ -119,9 +132,11 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
         if audit.domain:
             store.update_domain(job_id, audit.domain)
         store.complete_job(job_id, audit, crawl_data)
+        progress.add(job_id, "Rapport prêt ✓")
         success = True
     except Exception as e:
         logger.exception("Pipeline failed for job %s: %s", job_id, e)
+        progress.add(job_id, f"Échec : {e}")
         store.fail_job(job_id, str(e) or e.__class__.__name__)
     finally:
         if not success:

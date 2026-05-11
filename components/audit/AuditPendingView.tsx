@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { getAuditLogs, type AuditLogLine } from '@/lib/api'
 import type { AuditJobDetail } from '@/lib/types'
 
 interface Props {
@@ -21,6 +22,7 @@ const STEPS = [
 export function AuditPendingView({ initial }: Props) {
   const job = initial
   const [elapsed, setElapsed] = useState(0)
+  const [logs, setLogs] = useState<AuditLogLine[]>([])
 
   useEffect(() => {
     const createdAtMs =
@@ -31,6 +33,26 @@ export function AuditPendingView({ initial }: Props) {
     const id = setInterval(update, 500)
     return () => clearInterval(id)
   }, [initial.createdAt])
+
+  useEffect(() => {
+    if (initial.status !== 'pending') return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const poll = async () => {
+      try {
+        const lines = await getAuditLogs(initial.id)
+        if (!cancelled) setLogs(lines)
+      } catch {
+        /* ignore — logs are best-effort */
+      }
+      if (!cancelled) timer = setTimeout(poll, 2000)
+    }
+    poll()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [initial.id, initial.status])
 
   if (job.status === 'failed') {
     return <FailedView job={job} />
@@ -84,7 +106,7 @@ export function AuditPendingView({ initial }: Props) {
         />
       </div>
 
-      <div className="bg-bg-surface border border-[var(--border-subtle)] rounded-md p-4 text-sm text-text-secondary leading-relaxed">
+      <div className="bg-bg-surface border border-[var(--border-subtle)] rounded-md p-4 text-sm text-text-secondary leading-relaxed mb-6">
         Vous pouvez quitter cette page ou rafraîchir : l&apos;analyse tourne côté serveur
         et vous retrouverez le rapport ici dès qu&apos;il sera prêt.{' '}
         <Link
@@ -95,6 +117,39 @@ export function AuditPendingView({ initial }: Props) {
         </Link>
       </div>
 
+      <LogPanel logs={logs} />
+    </div>
+  )
+}
+
+function LogPanel({ logs }: { logs: AuditLogLine[] }) {
+  const endRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [logs.length])
+  return (
+    <div className="border border-[var(--border-subtle)] rounded-md bg-bg-elevated overflow-hidden">
+      <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-info-accent)]" style={{ animation: 'pulse-critical 1.5s ease-in-out infinite' }} />
+        <span className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary">
+          Journal de l&apos;analyse (Gemini)
+        </span>
+      </div>
+      <div className="max-h-64 overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed text-text-secondary">
+        {logs.length === 0 ? (
+          <div className="text-text-tertiary">En attente des premières étapes…</div>
+        ) : (
+          logs.map((l, i) => (
+            <div key={i} className="flex gap-2">
+              <span className="text-text-tertiary flex-shrink-0">
+                {new Date(l.t * 1000).toLocaleTimeString('fr-FR')}
+              </span>
+              <span className="break-all">{l.msg}</span>
+            </div>
+          ))
+        )}
+        <div ref={endRef} />
+      </div>
     </div>
   )
 }

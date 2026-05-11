@@ -351,21 +351,27 @@ def _time_boxed(fn: Callable, timeout_s: float, label: str):
         return None
 
 
-def analyze(crawl: CrawlData) -> AuditResult:
-    """Run the full multi-pass analysis and return a merged AuditResult."""
+def analyze(crawl: CrawlData, *, on_progress: Optional[Callable[[str], None]] = None) -> AuditResult:
+    """Run the full multi-pass analysis and return a merged AuditResult.
+    `on_progress` (optional) receives short status strings as passes run."""
+    _p = on_progress or (lambda _m: None)
     crawl_json = _compact_crawl(crawl)
 
+    _p("Vue d'ensemble : scoring des 6 axes…")
     overview = _run_overview(crawl, crawl_json)
     if not isinstance(overview, dict):
         raise ValueError("Overview response is not a JSON object")
     _sanitize_sections(overview)
     time.sleep(INTER_CALL_DELAY_S)
 
-    pages = _run_pages_batched(crawl)
+    selected_count = len(_select_pages_for_detail(crawl))
+    _p(f"Analyse page par page ({selected_count} pages détaillées)…")
+    pages = _run_pages_batched(crawl, on_progress=_p)
     pages = _dedupe_pages(pages)
     _sanitize_pages(pages)
     time.sleep(INTER_CALL_DELAY_S)
 
+    _p("Détection des pages manquantes…")
     missing = _run_missing(crawl)
     _sanitize_missing(missing)
 
@@ -373,8 +379,14 @@ def analyze(crawl: CrawlData) -> AuditResult:
     # limited Gemini call can't stall the whole audit. If they don't finish
     # in time we just omit them.
     time.sleep(INTER_CALL_DELAY_S)
+    _p("Estimation de visibilité organique (recherche web)…")
     visibility = _time_boxed(lambda: _run_visibility_estimate(crawl, pages), 90, "visibility")
+    if visibility is None:
+        _p("Estimation de visibilité ignorée (délai dépassé)")
+    _p("Analyse SXO (type de page vs SERP)…")
     sxo = _time_boxed(lambda: _run_sxo(crawl, pages), 90, "sxo")
+    if sxo is None:
+        _p("Analyse SXO ignorée (délai dépassé)")
 
     _log_coverage(crawl, pages)
 
@@ -481,8 +493,11 @@ def _select_pages_for_detail(crawl: CrawlData) -> list[CrawlPage]:
     return (priority + rest)[:MAX_PAGES_DETAILED]
 
 
-def _run_pages_batched(crawl: CrawlData) -> list[dict]:
+def _run_pages_batched(
+    crawl: CrawlData, *, on_progress: Optional[Callable[[str], None]] = None
+) -> list[dict]:
     """Analyse pages in fixed-size batches so no single response overruns."""
+    _p = on_progress or (lambda _m: None)
     selected = _select_pages_for_detail(crawl)
     batches = _chunk(selected, PAGE_BATCH_SIZE)
     all_pages: list[dict] = []
@@ -492,8 +507,10 @@ def _run_pages_batched(crawl: CrawlData) -> list[dict]:
             "Pages batch %d/%d for %s (%d pages)",
             i, len(batches), crawl.domain, len(batch),
         )
+        _p(f"Pages : lot {i}/{len(batches)}…")
         payload = _run_single_pages_batch(crawl.domain, batch, attempt=1)
         if payload is None:
+            _p(f"Pages : lot {i}/{len(batches)} — nouvelle tentative")
             time.sleep(5)
             payload = _run_single_pages_batch(
                 crawl.domain, batch, attempt=2, raise_on_fail=True,

@@ -220,6 +220,14 @@ def get_audit(audit_id: str) -> AuditJobDetail:
     return _detail(job)
 
 
+@router.get("/{audit_id}/logs")
+def get_audit_logs(audit_id: str) -> dict:
+    """Live progress lines for a running audit (in-memory, process-local)."""
+    from api.services import progress
+
+    return {"lines": progress.get(audit_id)}
+
+
 @router.patch("/{audit_id}/archive", response_model=AuditJobSummary)
 def set_archive(audit_id: str, req: ArchiveRequest) -> AuditJobSummary:
     store = get_store()
