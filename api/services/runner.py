@@ -370,6 +370,7 @@ def _merge_page_technical(pages, crawl_data):
         return pages
     from api.models import PageTechnical
     from api.services.crawler import _normalize  # local import to avoid cycle
+    from api.services import page_classifier, schema_generator
 
     crawl_by_url = {_normalize(p.url): p for p in (crawl_data.pages or [])}
     tc_rows_by_url = {}
@@ -377,6 +378,8 @@ def _merge_page_technical(pages, crawl_data):
         tc_rows_by_url = {
             _normalize(r.url): r for r in crawl_data.technicalCrawl.rows
         }
+    home_norm = _normalize(crawl_data.url)
+    domain = crawl_data.domain
 
     out = []
     for pa in pages:
@@ -391,11 +394,41 @@ def _merge_page_technical(pages, crawl_data):
         if cp and canonical:
             canonical_is_self = canonical in (norm, _normalize(cp.finalUrl or ""))
         og = cp.openGraph if (cp and cp.openGraph) else None
+        schema_types = sorted({s.type for s in cp.schemas}) if cp and cp.schemas else []
+        headings = cp.headings if cp else []
+        text_snippet = cp.textSnippet if cp else ""
+        word_count = cp.wordCount if cp else (row.wordCount if row else 0)
+
+        page_type = page_classifier.classify_page(
+            url=pa.url,
+            title=pa.title or (cp.title if cp else ""),
+            h1=pa.h1 or (cp.h1 if cp else ""),
+            headings=headings,
+            text_snippet=text_snippet,
+            schemas=schema_types,
+            word_count=word_count,
+            is_homepage=(norm == home_norm),
+        )
+
+        question_headings = [h for h in headings if "?" in h]
+        image_urls = [img.src for img in (cp.images if cp else []) if img.src]
+        suggested_json, suggested_type = schema_generator.suggest_schema(
+            url=pa.url,
+            page_type=page_type,
+            existing_types=schema_types,
+            title=pa.title or (cp.title if cp else ""),
+            h1=pa.h1 or (cp.h1 if cp else ""),
+            meta_description=pa.metaDescription if pa.metaDescription is not None else (cp.metaDescription if cp else None),
+            image_urls=image_urls,
+            domain=domain,
+            headings_questions=question_headings,
+        )
+
         tech = PageTechnical(
             statusCode=(cp.statusCode if cp else (row.statusCode if row else None)),
             depth=(row.depth if row else None),
             htmlBytes=(cp.htmlBytes if cp else (row.htmlBytes if row else 0)),
-            wordCount=(cp.wordCount if cp else (row.wordCount if row else 0)),
+            wordCount=word_count,
             textRatio=(row.textRatio if row else 0.0),
             canonical=canonical,
             canonicalIsSelf=canonical_is_self,
@@ -413,8 +446,11 @@ def _merge_page_technical(pages, crawl_data):
             ogImage=(og.ogImage if og else None),
             twitterCard=(og.twitterCard if og else None),
             redirectChain=(cp.redirectChain if cp else []),
-            schemaTypes=sorted({s.type for s in cp.schemas}) if cp and cp.schemas else [],
+            schemaTypes=schema_types,
             issues=(row.issues if row else []),
+            pageType=page_type,
+            suggestedSchema=suggested_json,
+            suggestedSchemaType=suggested_type,
         )
         out.append(pa.model_copy(update={"technical": tech}))
     return out

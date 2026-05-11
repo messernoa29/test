@@ -176,6 +176,22 @@ function TechnicalBlock({ t }: { t: PageTechnical }) {
           ))}
         </ul>
       )}
+      {t.suggestedSchema && (
+        <div className="mt-3">
+          <div className="text-[11px] uppercase tracking-wider font-medium text-primary mb-1">
+            Schema.org suggéré ({t.suggestedSchemaType}
+            {t.pageType ? ` · type de page : ${t.pageType}` : ''})
+          </div>
+          <p className="text-[11px] text-text-tertiary mb-1.5">
+            Aucun schema {t.suggestedSchemaType} détecté. JSON-LD prêt à coller
+            dans le &lt;head&gt; (remplacez les
+            <code className="mx-1">[À COMPLÉTER : …]</code>) :
+          </p>
+          <pre className="text-[10px] leading-snug bg-bg-elevated border border-[var(--border-subtle)] rounded p-2 overflow-x-auto text-text-secondary">
+            {`<script type="application/ld+json">\n${t.suggestedSchema}\n</script>`}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }

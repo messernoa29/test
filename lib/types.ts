@@ -54,6 +54,9 @@ export interface PageTechnical {
   redirectChain: string[]
   schemaTypes: string[]
   issues: string[]
+  pageType?: string
+  suggestedSchema?: string
+  suggestedSchemaType?: string
 }
 
 export interface PageAnalysis {

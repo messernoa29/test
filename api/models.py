@@ -168,6 +168,12 @@ class PageTechnical(BaseModel):
     redirectChain: list[str] = Field(default_factory=list)
     schemaTypes: list[str] = Field(default_factory=list)
     issues: list[str] = Field(default_factory=list)
+    # Detected page type ("article" | "product" | "localBusiness" | "faq" |
+    # "service" | "homepage" | "contact" | "other") — informs schema + SXO.
+    pageType: str = ""
+    # Ready-to-paste JSON-LD the page is missing (empty if nothing useful to add).
+    suggestedSchema: str = ""
+    suggestedSchemaType: str = ""
 
 
 class PageAnalysis(BaseModel):

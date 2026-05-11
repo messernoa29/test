@@ -116,6 +116,17 @@ def _page_block(p: PageAnalysis) -> list[str]:
         if t.issues:
             lines.append(f"- _Problèmes crawl :_ {'; '.join(t.issues)}")
         lines.append("")
+        if t.suggestedSchema:
+            lines.append(
+                f"**Schema.org suggéré** ({t.suggestedSchemaType}) — à coller dans le `<head>` :"
+            )
+            lines.append("")
+            lines.append("```html")
+            lines.append('<script type="application/ld+json">')
+            lines.append(t.suggestedSchema)
+            lines.append("</script>")
+            lines.append("```")
+            lines.append("")
     if p.missingKeywords:
         lines.append(f"Mots-clés cibles manquants : {', '.join(p.missingKeywords)}")
         lines.append("")
