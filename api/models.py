@@ -460,6 +460,10 @@ class CrawlData(BaseModel):
     duplicates: list[DuplicatePair] = Field(default_factory=list)
     redirectChains: list[RedirectChain] = Field(default_factory=list)
     technicalCrawl: Optional[TechnicalCrawlSummary] = None
+    # Raw /robots.txt content (empty if absent/unreachable).
+    robotsTxt: str = ""
+    # Whether /llms.txt exists.
+    hasLlmsTxt: bool = False
 
 
 class EstimatedKeyword(BaseModel):
@@ -494,6 +498,24 @@ class VisibilityEstimate(BaseModel):
     opportunities: list[KeywordOpportunity] = Field(default_factory=list)
     competitorsLikelyOutranking: list[str] = Field(default_factory=list)
     summary: str = ""
+
+
+class GeoPageScore(BaseModel):
+    url: str
+    score: int = 0  # 0-100 citability
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+
+
+class GeoAuditSummary(BaseModel):
+    """GEO (AI-citability) audit. Page scores + site-level robots/llms.txt."""
+
+    averagePageScore: int = 0
+    pageScores: list[GeoPageScore] = Field(default_factory=list)
+    siteStrengths: list[str] = Field(default_factory=list)
+    siteWeaknesses: list[str] = Field(default_factory=list)
+    aiCrawlerStatus: dict[str, str] = Field(default_factory=dict)  # UA -> status
+    hasLlmsTxt: bool = False
 
 
 class CulturalPageIssue(BaseModel):
@@ -543,6 +565,8 @@ class AuditResult(BaseModel):
     visibilityEstimate: Optional[VisibilityEstimate] = None
     # Cultural adaptation audit for multilingual sites (populated by the runner).
     culturalAudit: Optional[CulturalAuditSummary] = None
+    # GEO (AI-citability) audit (populated by the runner).
+    geoAudit: Optional[GeoAuditSummary] = None
 
     @field_validator("globalScore", mode="before")
     @classmethod

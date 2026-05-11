@@ -198,6 +198,23 @@ export interface AuditResult {
   technicalCrawl?: TechnicalCrawlSummary
   visibilityEstimate?: VisibilityEstimate
   culturalAudit?: CulturalAuditSummary
+  geoAudit?: GeoAuditSummary
+}
+
+export interface GeoPageScore {
+  url: string
+  score: number
+  strengths: string[]
+  weaknesses: string[]
+}
+
+export interface GeoAuditSummary {
+  averagePageScore: number
+  pageScores: GeoPageScore[]
+  siteStrengths: string[]
+  siteWeaknesses: string[]
+  aiCrawlerStatus: Record<string, string>
+  hasLlmsTxt: boolean
 }
 
 export interface CulturalPageIssue {

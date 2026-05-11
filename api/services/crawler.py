@@ -89,6 +89,8 @@ def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
     )
 
     try:
+        robots_txt = _fetch_robots_txt(client, origin)
+        has_llms_txt = _probe_llms_txt(client, origin)
         discovered = _discover_urls(client, origin, base, cap=max(max_pages * 2, MAX_DISCOVERY_LINKS))
         logger.info("Discovered %d candidate URLs for %s", len(discovered), origin)
 
@@ -117,7 +119,27 @@ def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
         duplicates=duplicates,
         redirectChains=redirect_chains,
         technicalCrawl=technical,
+        robotsTxt=robots_txt,
+        hasLlmsTxt=has_llms_txt,
     )
+
+
+def _fetch_robots_txt(client: httpx.Client, origin: str) -> str:
+    try:
+        resp = client.get(f"{origin}/robots.txt")
+        if resp.status_code == 200 and "text" in resp.headers.get("content-type", "").lower():
+            return resp.text[:20000]
+    except httpx.HTTPError:
+        pass
+    return ""
+
+
+def _probe_llms_txt(client: httpx.Client, origin: str) -> bool:
+    try:
+        resp = client.get(f"{origin}/llms.txt")
+        return resp.status_code == 200 and bool(resp.text.strip())
+    except httpx.HTTPError:
+        return False
 
 
 def _compute_depths(entry_url: str, pages: list[CrawlPage]) -> dict[str, int]:

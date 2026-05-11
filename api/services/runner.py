@@ -104,12 +104,14 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
         audit = analyzer.analyze(crawl_data)
         enriched_pages = _merge_page_technical(audit.pages, crawl_data)
         cultural = _build_cultural_audit(crawl_data)
+        geo = _build_geo_audit(crawl_data)
         audit = audit.model_copy(
             update={
                 "id": job_id,
                 "technicalCrawl": crawl_data.technicalCrawl,
                 "pages": enriched_pages,
                 "culturalAudit": cultural,
+                "geoAudit": geo,
             }
         )
         if audit.domain:
@@ -538,4 +540,45 @@ def _build_cultural_audit(crawl_data):
         isMultilingual=True,
         detectedLocales=sorted(declared),
         locales=reports,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GEO (AI-citability) audit
+
+
+def _build_geo_audit(crawl_data):
+    """Per-page citability scoring + site-level robots/llms.txt assessment."""
+    from api.models import GeoAuditSummary, GeoPageScore
+    from api.services import geo_audit
+
+    pages = crawl_data.pages or []
+    page_scores: list[GeoPageScore] = []
+    for p in pages:
+        schema_types = [s.type for s in p.schemas] if p.schemas else []
+        score, strengths, weaknesses = geo_audit.score_page(
+            word_count=p.wordCount,
+            headings=p.headings,
+            text_snippet=p.textSnippet,
+            schemas=schema_types,
+            rendered_with_playwright=bool(p.renderedWithPlaywright),
+        )
+        page_scores.append(GeoPageScore(
+            url=p.url, score=score, strengths=strengths, weaknesses=weaknesses,
+        ))
+
+    avg = round(sum(s.score for s in page_scores) / len(page_scores)) if page_scores else 0
+
+    site_str, site_weak, ai_status = geo_audit.score_site_layer(
+        robots_txt=crawl_data.robotsTxt or "",
+        has_llms_txt=bool(crawl_data.hasLlmsTxt),
+    )
+
+    return GeoAuditSummary(
+        averagePageScore=avg,
+        pageScores=sorted(page_scores, key=lambda s: s.score)[:50],  # worst first, cap
+        siteStrengths=site_str,
+        siteWeaknesses=site_weak,
+        aiCrawlerStatus=ai_status,
+        hasLlmsTxt=bool(crawl_data.hasLlmsTxt),
     )

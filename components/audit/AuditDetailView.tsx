@@ -10,6 +10,7 @@ import { PageSheet } from './PageSheet'
 import { MissingPagesTable } from './MissingPagesTable'
 import { TechnicalCrawlTab } from './TechnicalCrawlTab'
 import { VisibilityTab } from './VisibilityTab'
+import { GeoTab } from './GeoTab'
 
 type TabId =
   | 'overview'
@@ -17,6 +18,7 @@ type TabId =
   | 'pages'
   | 'crawl'
   | 'visibility'
+  | 'geo'
   | 'missing'
   | 'compare'
 
@@ -43,6 +45,11 @@ export function AuditDetailView({ audit }: Props) {
         id: 'visibility',
         label: 'Visibilité (est.)',
         count: audit.visibilityEstimate?.topKeywords?.length ?? 0,
+      },
+      {
+        id: 'geo',
+        label: 'GEO (IA)',
+        count: audit.geoAudit?.averagePageScore ?? 0,
       },
       {
         id: 'missing',
@@ -105,6 +112,7 @@ export function AuditDetailView({ audit }: Props) {
         {active === 'visibility' && (
           <VisibilityTab data={audit.visibilityEstimate} />
         )}
+        {active === 'geo' && <GeoTab data={audit.geoAudit} />}
         {active === 'missing' && (
           <MissingTab pages={audit.missingPages ?? []} />
         )}

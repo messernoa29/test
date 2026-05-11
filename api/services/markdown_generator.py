@@ -200,6 +200,40 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
         for p in audit.pages:
             L.extend(_page_block(p))
 
+    # GEO (AI citability)
+    geo = audit.geoAudit
+    if geo is not None:
+        L.append("## GEO — citabilité par les IA")
+        L.append("")
+        L.append(
+            f"- Score de citabilité moyen : {geo.averagePageScore}/100"
+        )
+        L.append(f"- /llms.txt : {'présent' if geo.hasLlmsTxt else 'absent'}")
+        L.append("")
+        if geo.siteStrengths:
+            L.append("### Points forts (site)")
+            for s in geo.siteStrengths:
+                L.append(f"- {s}")
+            L.append("")
+        if geo.siteWeaknesses:
+            L.append("### À corriger (site)")
+            for s in geo.siteWeaknesses:
+                L.append(f"- [ ] {s}")
+            L.append("")
+        if geo.aiCrawlerStatus:
+            L.append("### Crawlers AI dans robots.txt")
+            for ua, st in geo.aiCrawlerStatus.items():
+                L.append(f"- {ua} : {st}")
+            L.append("")
+        if geo.pageScores:
+            L.append("### Citabilité par page (les plus faibles d'abord)")
+            L.append("")
+            for ps in geo.pageScores:
+                L.append(f"- `{ps.url}` — {ps.score}/100")
+                for s in ps.weaknesses:
+                    L.append(f"  - [ ] {s}")
+            L.append("")
+
     # Cultural adaptation (multilingual)
     ca = audit.culturalAudit
     if ca is not None and ca.isMultilingual:
