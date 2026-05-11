@@ -14,6 +14,8 @@ All six axes: security, seo, ux, content, performance, business.
 
 from __future__ import annotations
 
+from typing import Optional
+
 
 def _clamp(n: float) -> int:
     return max(0, min(100, round(n)))
@@ -228,3 +230,108 @@ def clamp_to_base(llm_scores: dict, base_scores: dict[str, int], delta: int = 10
             v = base
         out[axis] = max(0, min(100, max(base - delta, min(base + delta, v))))
     return out
+
+
+# Human labels for the facts-snapshot keys, used by the drift view.
+FACT_LABELS: dict[str, str] = {
+    "pagesCrawled": "Pages crawlées",
+    "pagesIndexable": "Pages indexables",
+    "status4xx": "URLs en erreur 4xx",
+    "status5xx": "URLs en erreur 5xx",
+    "brokenInternalLinks": "Liens internes cassés",
+    "duplicateTitles": "Titres dupliqués (groupes)",
+    "duplicateMetas": "Meta descriptions dupliquées (groupes)",
+    "pagesWithoutTitle": "Pages sans <title>",
+    "pagesWithoutMeta": "Pages sans meta description",
+    "pagesWithoutH1": "Pages sans H1",
+    "titlesTooLong": "Titres trop longs (> 60)",
+    "pagesWithoutCanonical": "Pages sans canonical",
+    "pagesNoindex": "Pages en noindex",
+    "redirectChains": "Chaînes de redirection (≥ 2)",
+    "thinPages": "Pages thin (< 300 mots)",
+    "duplicatePairs": "Pages quasi-dupliquées (paires)",
+    "orphanPages": "Pages orphelines",
+    "imagesTotal": "Images (total)",
+    "imagesWithoutAlt": "Images sans alt",
+    "imagesLegacyFormat": "Images en format ancien (jpg/png)",
+    "pagesMixedContent": "Pages avec mixed content",
+    "pagesWithSchema": "Pages avec schema.org",
+    "hasLlmsTxt": "/llms.txt présent (1/0)",
+    "a11yPagesNoLang": "Pages sans <html lang>",
+    "a11yFormInputsNoLabel": "Champs de formulaire sans label",
+    "a11yDivButtons": "« Boutons » en <div>",
+    "a11yPagesNoLandmark": "Pages sans <main>/landmark",
+    "respPagesNoViewport": "Pages sans <meta viewport>",
+    "respPagesBlockingZoom": "Pages bloquant le zoom",
+    "cwvLighthouseScore": "Score Lighthouse perf (si dispo)",
+    # axis + global scores are added in too, prefixed "score_…"
+}
+
+
+def build_facts_snapshot(crawl, axis_scores: Optional[dict] = None, global_score: Optional[int] = None) -> dict[str, int]:
+    """A flat dict of measurable counts derived only from the crawl. The drift
+    view diffs this to know what actually changed."""
+    pages = list(crawl.pages or [])
+    tc = crawl.technicalCrawl
+    perf = crawl.performance
+
+    status_4xx = status_5xx = 0
+    dup_titles = dup_meta = broken_links = 0
+    pages_indexable = 0
+    if tc:
+        for code, n in (tc.statusCounts or {}).items():
+            try:
+                c = int(code)
+                if 400 <= c < 500:
+                    status_4xx += n
+                elif 500 <= c < 600:
+                    status_5xx += n
+            except ValueError:
+                pass
+        dup_titles = len(tc.duplicateTitles or [])
+        dup_meta = len(tc.duplicateMetaDescriptions or [])
+        broken_links = len(tc.brokenInternalLinks or [])
+        pages_indexable = tc.indexablePages
+
+    imgs_total = sum(len(p.images) for p in pages)
+    a11y_pages = [p for p in pages if p.a11y is not None]
+    resp_pages = [p for p in pages if p.responsive is not None]
+
+    snap: dict[str, int] = {
+        "pagesCrawled": len(pages),
+        "pagesIndexable": pages_indexable,
+        "status4xx": status_4xx,
+        "status5xx": status_5xx,
+        "brokenInternalLinks": broken_links,
+        "duplicateTitles": dup_titles,
+        "duplicateMetas": dup_meta,
+        "pagesWithoutTitle": sum(1 for p in pages if not p.title),
+        "pagesWithoutMeta": sum(1 for p in pages if not p.metaDescription),
+        "pagesWithoutH1": sum(1 for p in pages if not p.h1),
+        "titlesTooLong": sum(1 for p in pages if p.title and len(p.title) > 60),
+        "pagesWithoutCanonical": sum(1 for p in pages if not p.canonical),
+        "pagesNoindex": sum(1 for p in pages if "noindex" in (p.robotsMeta or "")),
+        "redirectChains": len([c for c in (crawl.redirectChains or []) if c.hopCount >= 2]),
+        "thinPages": sum(1 for p in pages if 0 < p.wordCount < 300),
+        "duplicatePairs": len(crawl.duplicates or []),
+        "orphanPages": len(crawl.linkGraph.orphanPages) if crawl.linkGraph else 0,
+        "imagesTotal": imgs_total,
+        "imagesWithoutAlt": sum(p.imagesWithoutAlt for p in pages),
+        "imagesLegacyFormat": sum(1 for p in pages for i in p.images if i.fileFormat in ("jpg", "jpeg", "png")),
+        "pagesMixedContent": sum(1 for p in pages if getattr(p, "hasMixedContent", False)),
+        "pagesWithSchema": sum(1 for p in pages if p.schemas),
+        "hasLlmsTxt": 1 if getattr(crawl, "hasLlmsTxt", False) else 0,
+        "a11yPagesNoLang": sum(1 for p in a11y_pages if not p.a11y.htmlHasLang),
+        "a11yFormInputsNoLabel": sum(p.a11y.formInputsWithoutLabel for p in a11y_pages),
+        "a11yDivButtons": sum(p.a11y.buttonsAsDiv for p in a11y_pages),
+        "a11yPagesNoLandmark": sum(1 for p in a11y_pages if not p.a11y.landmarksPresent),
+        "respPagesNoViewport": sum(1 for p in resp_pages if not p.responsive.hasViewportMeta),
+        "respPagesBlockingZoom": sum(1 for p in resp_pages if p.responsive.viewportBlocksZoom),
+        "cwvLighthouseScore": int(perf.performanceScore) if (perf and perf.performanceScore is not None) else -1,
+    }
+    if axis_scores:
+        for axis, sc in axis_scores.items():
+            snap[f"score_{axis}"] = int(sc)
+    if global_score is not None:
+        snap["score_global"] = int(global_score)
+    return snap

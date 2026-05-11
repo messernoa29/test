@@ -41,6 +41,25 @@ class FindingsBucket:
 
 
 @dataclass
+class FactDelta:
+    key: str
+    label: str
+    baseline: int
+    current: int
+    delta: int
+    direction: DeltaDirection
+    # True when a lower value is better for this fact (errors, missing things…).
+    lowerIsBetter: bool = True
+
+
+# Facts where a HIGHER value is the good outcome.
+_HIGHER_IS_BETTER = {
+    "pagesIndexable", "pagesWithSchema", "hasLlmsTxt", "cwvLighthouseScore",
+    "imagesTotal", "pagesCrawled",
+} | {f"score_{a}" for a in ("security", "seo", "ux", "content", "performance", "business")} | {"score_global"}
+
+
+@dataclass
 class DriftReport:
     baseline_id: str
     baseline_date: str
@@ -53,6 +72,11 @@ class DriftReport:
     resolved_count: int
     appeared_count: int
     persistent_count: int
+    # Diff of the deterministic facts snapshots (None if either audit lacks one).
+    fact_deltas: list[FactDelta] = field(default_factory=list)
+    # True when neither audit carried a facts snapshot — the comparison then
+    # relies only on (less reliable) LLM-worded findings.
+    facts_unavailable: bool = False
 
 
 def compare(baseline: AuditResult, current: AuditResult) -> DriftReport:
@@ -85,6 +109,32 @@ def compare(baseline: AuditResult, current: AuditResult) -> DriftReport:
         total_appeared += len(bucket.appeared)
         total_persistent += len(bucket.persistent)
 
+    # Facts diff — only the keys that actually changed.
+    from api.services.scoring import FACT_LABELS
+
+    b_facts = baseline.factsSnapshot or {}
+    c_facts = current.factsSnapshot or {}
+    facts_unavailable = not b_facts or not c_facts
+    fact_deltas: list[FactDelta] = []
+    if not facts_unavailable:
+        for key in sorted(set(b_facts) | set(c_facts)):
+            bv = int(b_facts.get(key, 0))
+            cv = int(c_facts.get(key, 0))
+            if bv == cv:
+                continue
+            d = cv - bv
+            higher = key in _HIGHER_IS_BETTER
+            # direction = is the change an improvement?
+            improved = (d > 0) if higher else (d < 0)
+            label = FACT_LABELS.get(key) or (
+                f"Score {key.replace('score_', '')}" if key.startswith("score_") else key
+            )
+            fact_deltas.append(FactDelta(
+                key=key, label=label, baseline=bv, current=cv, delta=d,
+                direction="up" if improved else "down",
+                lowerIsBetter=not higher,
+            ))
+
     return DriftReport(
         baseline_id=baseline.id,
         baseline_date=baseline.createdAt,
@@ -97,6 +147,8 @@ def compare(baseline: AuditResult, current: AuditResult) -> DriftReport:
         resolved_count=total_resolved,
         appeared_count=total_appeared,
         persistent_count=total_persistent,
+        fact_deltas=fact_deltas,
+        facts_unavailable=facts_unavailable,
     )
 
 

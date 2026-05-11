@@ -699,6 +699,16 @@ export interface SeoCampaign {
   keywords: TrackedKeyword[]
 }
 
+export interface FactDelta {
+  key: string
+  label: string
+  baseline: number
+  current: number
+  delta: number
+  direction: 'up' | 'down' | 'stable'
+  lowerIsBetter: boolean
+}
+
 export interface DriftReport {
   baselineId: string
   baselineDate: string
@@ -711,4 +721,6 @@ export interface DriftReport {
   resolvedCount: number
   appearedCount: number
   persistentCount: number
+  factDeltas: FactDelta[]
+  factsUnavailable: boolean
 }

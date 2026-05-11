@@ -66,6 +66,16 @@ class FindingsBucketOut(BaseModel):
     persistent: list[FindingOut]
 
 
+class FactDeltaOut(BaseModel):
+    key: str
+    label: str
+    baseline: int
+    current: int
+    delta: int
+    direction: str
+    lowerIsBetter: bool
+
+
 class DriftResponse(BaseModel):
     baselineId: str
     baselineDate: str
@@ -78,6 +88,8 @@ class DriftResponse(BaseModel):
     resolvedCount: int
     appearedCount: int
     persistentCount: int
+    factDeltas: list[FactDeltaOut] = []
+    factsUnavailable: bool = False
 
 
 def _summary(job: AuditJob) -> AuditJobSummary:
@@ -196,6 +208,8 @@ def compare_audits(
         resolvedCount=report.resolved_count,
         appearedCount=report.appeared_count,
         persistentCount=report.persistent_count,
+        factDeltas=[FactDeltaOut(**d.__dict__) for d in report.fact_deltas],
+        factsUnavailable=report.facts_unavailable,
     )
 
 

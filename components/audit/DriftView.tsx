@@ -140,31 +140,90 @@ export function DriftView({ currentId, domain }: Props) {
       </section>
 
       <section>
-        <SectionTitle title="Synthèse des findings" />
+        <SectionTitle title="Changements factuels mesurés" />
+        {report.factsUnavailable ? (
+          <p className="text-xs text-text-tertiary">
+            L&apos;un des deux audits ne contient pas de relevé factuel (audit
+            antérieur à cette fonctionnalité). Comparaison limitée aux scores et
+            aux findings ci-dessous.
+          </p>
+        ) : report.factDeltas.length === 0 ? (
+          <p className="text-sm text-text-secondary">
+            Aucun changement mesurable entre les deux audits — codes HTTP, titres/
+            meta, canonicals, images, accessibilité, Core Web Vitals : tout est
+            identique. Si vous n&apos;avez rien modifié, c&apos;est attendu.
+          </p>
+        ) : (
+          <div className="overflow-x-auto border border-[var(--border-subtle)] rounded-md">
+            <table className="w-full text-xs">
+              <thead className="bg-bg-elevated text-text-tertiary">
+                <tr>
+                  <th className="text-left px-3 py-1.5 font-medium">Indicateur</th>
+                  <th className="px-3 py-1.5 font-medium">Avant</th>
+                  <th className="px-3 py-1.5 font-medium">Maintenant</th>
+                  <th className="px-3 py-1.5 font-medium">Évolution</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.factDeltas.map((f) => (
+                  <tr key={f.key} className="border-t border-[var(--border-subtle)]">
+                    <td className="px-3 py-1.5 text-text-primary">{f.label}</td>
+                    <td className="px-3 py-1.5 text-center tabular-nums text-text-secondary">
+                      {f.baseline < 0 ? '—' : f.baseline}
+                    </td>
+                    <td className="px-3 py-1.5 text-center tabular-nums text-text-primary">
+                      {f.current < 0 ? '—' : f.current}
+                    </td>
+                    <td
+                      className={`px-3 py-1.5 text-center tabular-nums font-medium ${
+                        f.direction === 'up'
+                          ? 'text-[var(--status-ok-text)]'
+                          : 'text-[var(--status-critical-text)]'
+                      }`}
+                    >
+                      {f.delta > 0 ? `+${f.delta}` : f.delta}{' '}
+                      {f.direction === 'up' ? '✓' : '✗'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <SectionTitle title="Synthèse des findings IA" />
+        <p className="text-xs text-text-tertiary mb-3">
+          Indicatif : ces compteurs comparent les points formulés par l&apos;IA
+          d&apos;un audit à l&apos;autre. La formulation peut varier sans que rien
+          n&apos;ait changé sur le site — fiez-vous d&apos;abord aux changements
+          factuels ci-dessus.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <StatTile
-            label="Résolus"
+            label="Résolus (formulation)"
             value={report.resolvedCount}
             tone="ok"
-            hint="Présents avant, plus présents"
+            hint="Plus formulés par l'IA"
           />
           <StatTile
-            label="Nouveaux"
+            label="Nouveaux (formulation)"
             value={report.appearedCount}
             tone="critical"
-            hint="Apparus entre les deux audits"
+            hint="Nouvellement formulés"
           />
           <StatTile
             label="Persistants"
             value={report.persistentCount}
             tone="warning"
-            hint="Présents dans les deux"
+            hint="Formulés dans les deux"
           />
         </div>
       </section>
 
       <section>
-        <SectionTitle title="Détails par axe" />
+        <SectionTitle title="Détails par axe (findings IA)" />
         <div className="space-y-3">
           {Object.entries(report.perAxisFindings).map(([axis, bucket]) => (
             <AxisDriftCard

@@ -755,6 +755,10 @@ class AuditResult(BaseModel):
     accessibilityAudit: Optional[AccessibilityAudit] = None
     # Responsive / mobile audit — populated by the runner.
     responsiveAudit: Optional[ResponsiveAudit] = None
+    # Deterministic snapshot of measurable facts (counts), so the drift view
+    # can compare what actually changed rather than the LLM's prose. Keys are
+    # stable; values are ints. Populated by the runner.
+    factsSnapshot: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("globalScore", mode="before")
     @classmethod

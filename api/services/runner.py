@@ -240,6 +240,15 @@ def _run(job_id: str, url: str, max_pages: int = 50, platform: str = "unknown") 
         # Responsive — static signals + Playwright at 3 widths on a sample.
         progress.add(job_id, "Test responsive (rendu mobile/tablette/desktop)…")
         responsive_audit = _build_responsive_audit(crawl_data, started)
+        # Deterministic facts snapshot — what the drift view actually diffs.
+        try:
+            from api.services import scoring as _scoring
+            facts = _scoring.build_facts_snapshot(
+                crawl_data, axis_scores=dict(audit.scores), global_score=audit.globalScore
+            )
+        except Exception as e:
+            logger.warning("Facts snapshot failed: %s", e)
+            facts = {}
         audit = audit.model_copy(
             update={
                 "id": job_id,
@@ -251,6 +260,7 @@ def _run(job_id: str, url: str, max_pages: int = 50, platform: str = "unknown") 
                 "crawlCoverage": coverage,
                 "accessibilityAudit": a11y_audit,
                 "responsiveAudit": responsive_audit,
+                "factsSnapshot": facts,
             }
         )
         if audit.domain:
