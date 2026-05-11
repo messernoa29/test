@@ -207,7 +207,7 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
         cultural = _build_cultural_audit(crawl_data)
         geo = _build_geo_audit(crawl_data)
         programmatic = _build_programmatic_audit(crawl_data)
-        coverage = _build_crawl_coverage(crawl_data)
+        coverage = _build_crawl_coverage(crawl_data, detailed_count=len(enriched_pages or []))
         audit = audit.model_copy(
             update={
                 "id": job_id,
@@ -724,7 +724,7 @@ def _build_programmatic_audit(crawl_data):
 # Crawl coverage summary
 
 
-def _build_crawl_coverage(crawl_data):
+def _build_crawl_coverage(crawl_data, *, detailed_count: int = 0):
     from api.models import CrawlCoverage
 
     requested = crawl_data.requestedMaxPages or 0
@@ -736,6 +736,7 @@ def _build_crawl_coverage(crawl_data):
         requestedMaxPages=requested,
         discoveredUrlCount=discovered,
         crawledPageCount=crawled,
+        detailedPageCount=detailed_count or crawled,
         cappedByLimit=capped_by_limit,
         cappedBySite=capped_by_site,
     )

@@ -162,16 +162,20 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
     cov = audit.crawlCoverage
     if cov is not None and cov.requestedMaxPages:
         suffix = (
-            " — limite atteinte, relancez avec une profondeur supérieure pour tout couvrir"
+            " — limite atteinte, relancez avec une profondeur supérieure pour un crawl technique complet"
             if cov.cappedByLimit
-            else " — couverture complète" if cov.cappedBySite else ""
+            else " — crawl complet" if cov.cappedBySite else ""
         )
         extra = (
             f" sur {cov.discoveredUrlCount} URLs trouvées"
             if cov.discoveredUrlCount > cov.crawledPageCount else ""
         )
+        detail = (
+            f" · {cov.detailedPageCount} analysées en détail par l'IA"
+            if cov.detailedPageCount and cov.detailedPageCount < cov.crawledPageCount else ""
+        )
         L.append(
-            f"- **Couverture du crawl** : {cov.crawledPageCount} pages analysées{extra} "
+            f"- **Couverture du crawl** : {cov.crawledPageCount} pages crawlées techniquement{extra}{detail} "
             f"(profondeur demandée : {cov.requestedMaxPages}){suffix}"
         )
     L.append("")

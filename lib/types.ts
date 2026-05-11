@@ -208,6 +208,7 @@ export interface CrawlCoverage {
   requestedMaxPages: number
   discoveredUrlCount: number
   crawledPageCount: number
+  detailedPageCount: number
   cappedByLimit: boolean
   cappedBySite: boolean
 }

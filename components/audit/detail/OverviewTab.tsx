@@ -27,16 +27,19 @@ export function OverviewTab({
           }`}
         >
           <strong>Couverture du crawl :</strong>{' '}
-          {cov.crawledPageCount} page{cov.crawledPageCount > 1 ? 's' : ''} analysée
-          {cov.crawledPageCount > 1 ? 's' : ''}
+          {cov.crawledPageCount} page{cov.crawledPageCount > 1 ? 's' : ''} crawlée
+          {cov.crawledPageCount > 1 ? 's' : ''} techniquement
           {cov.discoveredUrlCount > cov.crawledPageCount
             ? ` sur ${cov.discoveredUrlCount} URLs trouvées`
             : ''}
+          {cov.detailedPageCount > 0 && cov.detailedPageCount < cov.crawledPageCount
+            ? ` · ${cov.detailedPageCount} analysées en détail par l'IA`
+            : ''}
           {' · '}profondeur demandée : {cov.requestedMaxPages} pages.
           {cov.cappedByLimit
-            ? ` Le site a plus de pages que la limite — relancez avec une profondeur supérieure pour tout couvrir.`
+            ? ` Le site a plus de pages que la limite — relancez avec une profondeur supérieure pour un crawl technique complet.`
             : cov.cappedBySite
-              ? ` Le site n'a pas plus de pages : couverture complète.`
+              ? ` Le site n'a pas plus de pages : crawl complet.`
               : ''}
         </div>
       )}

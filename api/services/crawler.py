@@ -53,8 +53,9 @@ USER_AGENT = (
     "Mozilla/5.0 (compatible; AuditBureauBot/0.1; +https://audit-bureau.local)"
 )
 REQUEST_TIMEOUT = 15.0
-MAX_PAGES = 50  # hard cap on fully-fetched pages
-MAX_DISCOVERY_LINKS = 200  # cap on URLs discovered before trimming
+MAX_PAGES = 300  # default cap on fully-fetched pages (Screaming-Frog-style crawl)
+MAX_PAGES_CEILING = 1000  # absolute hard cap regardless of the requested depth
+MAX_DISCOVERY_LINKS = 1500  # cap on URLs discovered before trimming
 HEADING_LIMIT = 8
 SNIPPET_LIMIT = 200
 MAX_LINKS_PER_PAGE = 200  # safety cap per page (mega-footers exist)
@@ -72,10 +73,12 @@ CRAWL_CONCURRENCY = int(os.getenv("CRAWL_CONCURRENCY", "8"))
 def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
     """Crawl the site and return structured page data.
 
-    `max_pages` caps how many discovered URLs we fully fetch. Callers pass
-    the user-chosen depth (50 / 150 / 300); we clamp to a hard ceiling.
+    `max_pages` caps how many discovered URLs we fully fetch (the technical
+    crawl — status codes, link graph, dups, etc.). The LLM only analyses a
+    small subset in detail; see analyzer.MAX_PAGES_DETAILED. Clamped to a
+    hard ceiling.
     """
-    max_pages = max(1, min(int(max_pages or MAX_PAGES), 300))
+    max_pages = max(1, min(int(max_pages or MAX_PAGES), MAX_PAGES_CEILING))
     base = _normalize(url)
     parsed = urlparse(base)
     origin = f"{parsed.scheme}://{parsed.netloc}"
@@ -91,7 +94,10 @@ def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
     try:
         robots_txt = _fetch_robots_txt(client, origin)
         has_llms_txt = _probe_llms_txt(client, origin)
-        discovered = _discover_urls(client, origin, base, cap=max(max_pages * 2, MAX_DISCOVERY_LINKS))
+        discovered = _discover_urls(
+            client, origin, base,
+            cap=min(MAX_DISCOVERY_LINKS, max(max_pages + 50, max_pages * 2)),
+        )
         discovered_count = len(discovered)
         logger.info("Discovered %d candidate URLs for %s", discovered_count, origin)
 

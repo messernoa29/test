@@ -590,13 +590,15 @@ class CulturalAuditSummary(BaseModel):
 
 
 class CrawlCoverage(BaseModel):
-    """How much of the site the crawl actually covered, vs what was asked."""
+    """How much of the site the crawl covered vs what was asked, and how many
+    pages the LLM analysed in detail."""
 
-    requestedMaxPages: int = 0   # depth the user picked (50 / 150 / 300)
-    discoveredUrlCount: int = 0  # distinct same-origin URLs found
-    crawledPageCount: int = 0    # pages fetched & analysed (≤ requestedMaxPages)
-    cappedByLimit: bool = False  # True if discovery hit the page limit
-    cappedBySite: bool = False   # True if the site simply has fewer pages
+    requestedMaxPages: int = 0     # crawl-depth the user picked (100/300/1000)
+    discoveredUrlCount: int = 0    # distinct same-origin URLs found
+    crawledPageCount: int = 0      # pages fetched for the technical crawl
+    detailedPageCount: int = 0     # pages the LLM analysed page-by-page
+    cappedByLimit: bool = False    # True if discovery hit the crawl-page limit
+    cappedBySite: bool = False     # True if the site simply has fewer pages
 
 
 class AuditResult(BaseModel):
@@ -668,8 +670,9 @@ class AuditResult(BaseModel):
 
 class AuditRequest(BaseModel):
     url: HttpUrl
-    # Max pages to fully crawl. Clamped server-side to {50, 150, 300}.
-    maxPages: int = 50
+    # Pages to fetch for the technical crawl (link graph, status codes, dups…).
+    # The LLM only analyses a small subset in detail. Clamped to {100,300,1000}.
+    maxPages: int = 300
 
     @field_validator("maxPages", mode="before")
     @classmethod
@@ -677,12 +680,12 @@ class AuditRequest(BaseModel):
         try:
             n = int(v)  # type: ignore[arg-type]
         except (TypeError, ValueError):
-            return 50
-        if n <= 50:
-            return 50
-        if n <= 150:
-            return 150
-        return 300
+            return 300
+        if n <= 100:
+            return 100
+        if n <= 300:
+            return 300
+        return 1000
 
 
 JobStatus = Literal["pending", "done", "failed"]

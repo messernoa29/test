@@ -195,7 +195,7 @@ export async function logout(): Promise<void> {
 
 export async function runAudit(
   url: string,
-  maxPages = 50,
+  maxPages = 300,
 ): Promise<AuditJobSummary> {
   return request<AuditJobSummary>('/audit', {
     method: 'POST',

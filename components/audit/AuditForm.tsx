@@ -4,16 +4,20 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { runAudit } from '@/lib/api'
 
+// Depth = pages fetched for the *technical* crawl (status codes, link graph,
+// dups, canonicals…). The IA analyses only a fixed subset of important pages
+// in detail (~30), so a bigger crawl mostly affects the technical coverage,
+// not the IA cost — but it does take longer.
 const DEPTH_OPTIONS = [
-  { value: 50, label: '50 pages — rapide (~3-5 min)' },
-  { value: 150, label: '150 pages — approfondi (~6-10 min)' },
-  { value: 300, label: '300 pages — exhaustif (~12-20 min)' },
+  { value: 100, label: '100 pages crawlées — rapide (~3-6 min)' },
+  { value: 300, label: '300 pages crawlées — recommandé (~6-12 min)' },
+  { value: 1000, label: '1000 pages crawlées — gros sites (~15-30 min)' },
 ] as const
 
 export function AuditForm() {
   const router = useRouter()
   const [url, setUrl] = useState('')
-  const [maxPages, setMaxPages] = useState<number>(50)
+  const [maxPages, setMaxPages] = useState<number>(300)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -68,8 +72,10 @@ export function AuditForm() {
         <p className="text-xs text-[var(--status-critical-text)]">{error}</p>
       )}
       <p className="text-xs text-text-tertiary">
-        Selon la profondeur choisie, l&apos;analyse dure 3 à 20 min. Vous pouvez
-        quitter la page, elle continuera côté serveur.
+        La profondeur fixe le nombre de pages crawlées techniquement (codes
+        HTTP, maillage, doublons…). L&apos;analyse IA détaillée porte sur les
+        ~30 pages les plus importantes quelle que soit la profondeur. Vous
+        pouvez quitter la page, l&apos;audit continue côté serveur.
       </p>
     </form>
   )
