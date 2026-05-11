@@ -189,6 +189,54 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
         for p in audit.pages:
             L.extend(_page_block(p))
 
+    # Visibility estimate (SEMrush-style, LLM-estimated)
+    v = audit.visibilityEstimate
+    if v is not None:
+        L.append("## Visibilité organique (estimation)")
+        L.append("")
+        L.append(f"> {v.disclaimer}")
+        L.append("")
+        traffic = (
+            v.trafficRange
+            or (f"~{v.estimatedMonthlyOrganicTraffic} visites/mois"
+                if v.estimatedMonthlyOrganicTraffic is not None else "—")
+        )
+        L.append(f"- Trafic organique estimé : {traffic}")
+        if v.estimatedRankingKeywordsCount is not None:
+            L.append(f"- Mots-clés positionnés (estimation) : ~{v.estimatedRankingKeywordsCount}")
+        if v.summary:
+            L.append(f"- Synthèse : {v.summary}")
+        L.append("")
+        if v.topKeywords:
+            L.append("### Mots-clés probablement positionnés")
+            L.append("")
+            L.append("| Mot-clé | Volume est. | Position est. | Intention | Page | Note |")
+            L.append("| --- | --- | --- | --- | --- | --- |")
+            for k in v.topKeywords:
+                L.append(
+                    f"| {_esc(k.keyword)} | {k.estimatedMonthlyVolume if k.estimatedMonthlyVolume is not None else '—'} "
+                    f"| {k.estimatedPosition if k.estimatedPosition is not None else '—'} | {_esc(k.intent)} "
+                    f"| {_esc(k.rankingUrl or '—')} | {_esc(k.note)} |"
+                )
+            L.append("")
+        if v.opportunities:
+            L.append("### Opportunités de mots-clés")
+            L.append("")
+            L.append("| Mot-clé | Volume est. | Difficulté | Page à viser | Pourquoi |")
+            L.append("| --- | --- | --- | --- | --- |")
+            for k in v.opportunities:
+                L.append(
+                    f"| {_esc(k.keyword)} | {k.estimatedMonthlyVolume if k.estimatedMonthlyVolume is not None else '—'} "
+                    f"| {_esc(k.difficulty)} | {_esc(k.suggestedPage)} | {_esc(k.rationale)} |"
+                )
+            L.append("")
+        if v.competitorsLikelyOutranking:
+            L.append("### Concurrents qui dominent probablement ces SERP")
+            L.append("")
+            for c in v.competitorsLikelyOutranking:
+                L.append(f"- {c}")
+            L.append("")
+
     # Technical crawl table (Screaming-Frog-style)
     tc = audit.technicalCrawl
     if tc and tc.pagesCrawled:

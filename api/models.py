@@ -454,6 +454,40 @@ class CrawlData(BaseModel):
     technicalCrawl: Optional[TechnicalCrawlSummary] = None
 
 
+class EstimatedKeyword(BaseModel):
+    keyword: str
+    estimatedMonthlyVolume: Optional[int] = None  # rough order of magnitude
+    estimatedPosition: Optional[int] = None  # where the site likely ranks (1-100)
+    rankingUrl: Optional[str] = None  # which page probably ranks
+    intent: str = ""  # "informational" | "transactional" | "navigational" | ""
+    note: str = ""
+
+
+class KeywordOpportunity(BaseModel):
+    keyword: str
+    estimatedMonthlyVolume: Optional[int] = None
+    difficulty: str = ""  # "low" | "medium" | "high" | ""
+    suggestedPage: str = ""  # existing URL to optimize, or "(nouvelle page)"
+    rationale: str = ""
+
+
+class VisibilityEstimate(BaseModel):
+    """LLM-estimated organic visibility. Every number is an order-of-magnitude
+    guess from public signals, NOT measured data."""
+
+    disclaimer: str = (
+        "Estimations indicatives produites par IA + recherche web. "
+        "Ce ne sont PAS des données de clickstream type SEMrush/Ahrefs."
+    )
+    estimatedMonthlyOrganicTraffic: Optional[int] = None  # visits/month, rough
+    trafficRange: str = ""  # e.g. "500–1 500 visites/mois"
+    estimatedRankingKeywordsCount: Optional[int] = None  # how many KW the site ranks for
+    topKeywords: list[EstimatedKeyword] = Field(default_factory=list)
+    opportunities: list[KeywordOpportunity] = Field(default_factory=list)
+    competitorsLikelyOutranking: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
 class AuditResult(BaseModel):
     id: str
     domain: str
@@ -471,6 +505,9 @@ class AuditResult(BaseModel):
     # Screaming-Frog-style technical crawl table (populated by the runner from
     # the CrawlData, not by the LLM).
     technicalCrawl: Optional[TechnicalCrawlSummary] = None
+    # SEMrush-style organic visibility estimate (LLM + web_search, clearly
+    # labelled as an estimate — NOT clickstream data).
+    visibilityEstimate: Optional[VisibilityEstimate] = None
 
     @field_validator("globalScore", mode="before")
     @classmethod

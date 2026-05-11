@@ -193,6 +193,35 @@ export interface AuditResult {
   pages?: PageAnalysis[]
   missingPages?: MissingPage[]
   technicalCrawl?: TechnicalCrawlSummary
+  visibilityEstimate?: VisibilityEstimate
+}
+
+export interface EstimatedKeyword {
+  keyword: string
+  estimatedMonthlyVolume: number | null
+  estimatedPosition: number | null
+  rankingUrl: string | null
+  intent: string
+  note: string
+}
+
+export interface KeywordOpportunity {
+  keyword: string
+  estimatedMonthlyVolume: number | null
+  difficulty: string
+  suggestedPage: string
+  rationale: string
+}
+
+export interface VisibilityEstimate {
+  disclaimer: string
+  estimatedMonthlyOrganicTraffic: number | null
+  trafficRange: string
+  estimatedRankingKeywordsCount: number | null
+  topKeywords: EstimatedKeyword[]
+  opportunities: KeywordOpportunity[]
+  competitorsLikelyOutranking: string[]
+  summary: string
 }
 
 export interface TechnicalPageRow {

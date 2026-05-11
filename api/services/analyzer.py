@@ -348,11 +348,16 @@ def analyze(crawl: CrawlData) -> AuditResult:
     missing = _run_missing(crawl)
     _sanitize_missing(missing)
 
+    time.sleep(INTER_CALL_DELAY_S)
+    visibility = _run_visibility_estimate(crawl, pages)
+
     _log_coverage(crawl, pages)
 
     merged: dict = dict(overview)
     merged["pages"] = pages
     merged["missingPages"] = missing
+    if visibility is not None:
+        merged["visibilityEstimate"] = visibility
     merged.setdefault("id", uuid.uuid4().hex)
     merged.setdefault("createdAt", datetime.now(timezone.utc).isoformat())
     merged.setdefault("domain", crawl.domain)
@@ -520,6 +525,110 @@ def _run_missing(crawl: CrawlData) -> list[dict]:
         return []
     result = payload.get("missingPages") or []
     return result if isinstance(result, list) else []
+
+
+_VISIBILITY_TEMPLATE = """Estimation de visibilité organique pour {domain}.
+
+Tu peux utiliser web_search pour vérifier des ordres de grandeur (volumes de recherche approximatifs, présence de concurrents, SERP réelle sur 2-3 requêtes clés). Tu n'as PAS accès aux bases clickstream (SEMrush/Ahrefs) — tout ce que tu produis est une ESTIMATION assumée.
+
+## Contexte du site (crawl)
+- {page_count} pages crawlées
+- Thématiques détectées (titres/H1) :
+{themes}
+- Mots-clés cibles observés sur les pages :
+{target_keywords}
+
+## Ce que tu dois produire
+1. estimatedMonthlyOrganicTraffic : ordre de grandeur du trafic organique mensuel (entier). Si vraiment impossible, null.
+2. trafficRange : fourchette lisible (ex: "300–800 visites/mois").
+3. estimatedRankingKeywordsCount : combien de mots-clés ce site rank probablement (ordre de grandeur).
+4. topKeywords : 8 à 15 mots-clés sur lesquels le site rank vraisemblablement. Pour chacun : keyword, estimatedMonthlyVolume (ordre de grandeur), estimatedPosition (1-100), rankingUrl (l'URL du site la plus probable), intent ("informational"|"transactional"|"navigational"), note courte.
+5. opportunities : 8 à 15 mots-clés que le site DEVRAIT cibler mais ne couvre pas (ou mal). Pour chacun : keyword, estimatedMonthlyVolume, difficulty ("low"|"medium"|"high"), suggestedPage (URL existante à optimiser, ou "(nouvelle page)"), rationale.
+6. competitorsLikelyOutranking : 2 à 6 domaines concurrents qui dominent probablement ces SERP.
+7. summary : 2-3 phrases de synthèse honnête (forces/faiblesses de visibilité).
+
+## Discipline
+- N'invente pas de chiffres précis et faux. Ordres de grandeur uniquement (10, 50, 200, 1000…).
+- Si tu n'as aucun signal fiable, mets les champs numériques à null et dis-le dans summary.
+- Reste cohérent : un site de 5 pages locales ne fait pas 50 000 visites/mois.
+
+## Sortie STRICTE (aucun texte hors balises)
+
+<VISIBILITY_JSON>
+{{
+  "estimatedMonthlyOrganicTraffic": 0,
+  "trafficRange": "...",
+  "estimatedRankingKeywordsCount": 0,
+  "topKeywords": [
+    {{"keyword": "...", "estimatedMonthlyVolume": 0, "estimatedPosition": 0, "rankingUrl": "...", "intent": "...", "note": "..."}}
+  ],
+  "opportunities": [
+    {{"keyword": "...", "estimatedMonthlyVolume": 0, "difficulty": "low", "suggestedPage": "...", "rationale": "..."}}
+  ],
+  "competitorsLikelyOutranking": ["..."],
+  "summary": "..."
+}}
+</VISIBILITY_JSON>"""
+
+
+def _run_visibility_estimate(crawl: CrawlData, pages: list[dict]) -> Optional[dict]:
+    """SEMrush-style organic visibility estimate. LLM + web_search, best-effort.
+    Returns a dict matching VisibilityEstimate, or None on failure."""
+    themes = "\n".join(
+        f"  - {p.title or p.h1 or p.url}" for p in crawl.pages[:25]
+    ) or "  (aucun)"
+    kw_set: list[str] = []
+    seen: set[str] = set()
+    for p in pages:
+        for k in (p.get("targetKeywords") or []):
+            kl = str(k).strip().lower()
+            if kl and kl not in seen:
+                seen.add(kl)
+                kw_set.append(str(k).strip())
+    target_keywords = "\n".join(f"  - {k}" for k in kw_set[:40]) or "  (aucun observé)"
+    prompt = _VISIBILITY_TEMPLATE.format(
+        domain=crawl.domain,
+        page_count=len(crawl.pages),
+        themes=themes,
+        target_keywords=target_keywords,
+    )
+    try:
+        response = get_llm_client().generate(
+            system=_SYSTEM,
+            user_prompt=prompt,
+            max_tokens=6000,
+            enable_web_search=True,
+        )
+        payload = _extract_json(
+            response, tag="VISIBILITY_JSON", context=crawl.domain,
+        )
+    except Exception as e:
+        logger.warning("Visibility estimate failed for %s: %s", crawl.domain, e)
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    def _clamp_int(v, lo=0, hi=10_000_000):
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return None
+        return max(lo, min(hi, n))
+
+    payload["estimatedMonthlyOrganicTraffic"] = _clamp_int(
+        payload.get("estimatedMonthlyOrganicTraffic")
+    )
+    payload["estimatedRankingKeywordsCount"] = _clamp_int(
+        payload.get("estimatedRankingKeywordsCount")
+    )
+    for k in payload.get("topKeywords") or []:
+        if isinstance(k, dict):
+            k["estimatedMonthlyVolume"] = _clamp_int(k.get("estimatedMonthlyVolume"))
+            k["estimatedPosition"] = _clamp_int(k.get("estimatedPosition"), 1, 100)
+    for k in payload.get("opportunities") or []:
+        if isinstance(k, dict):
+            k["estimatedMonthlyVolume"] = _clamp_int(k.get("estimatedMonthlyVolume"))
+    return payload
 
 
 # ---------------------------------------------------------------------------

@@ -9,8 +9,16 @@ import { FindingRow } from './FindingRow'
 import { PageSheet } from './PageSheet'
 import { MissingPagesTable } from './MissingPagesTable'
 import { TechnicalCrawlTab } from './TechnicalCrawlTab'
+import { VisibilityTab } from './VisibilityTab'
 
-type TabId = 'overview' | AuditSection | 'pages' | 'crawl' | 'missing' | 'compare'
+type TabId =
+  | 'overview'
+  | AuditSection
+  | 'pages'
+  | 'crawl'
+  | 'visibility'
+  | 'missing'
+  | 'compare'
 
 interface Props {
   audit: AuditResult
@@ -30,6 +38,11 @@ export function AuditDetailView({ audit }: Props) {
         id: 'crawl',
         label: 'Crawl technique',
         count: audit.technicalCrawl?.pagesCrawled ?? 0,
+      },
+      {
+        id: 'visibility',
+        label: 'Visibilité (est.)',
+        count: audit.visibilityEstimate?.topKeywords?.length ?? 0,
       },
       {
         id: 'missing',
@@ -84,6 +97,9 @@ export function AuditDetailView({ audit }: Props) {
         )}
         {active === 'pages' && <PagesTab pages={audit.pages ?? []} />}
         {active === 'crawl' && <TechnicalCrawlTab data={audit.technicalCrawl} />}
+        {active === 'visibility' && (
+          <VisibilityTab data={audit.visibilityEstimate} />
+        )}
         {active === 'missing' && (
           <MissingTab pages={audit.missingPages ?? []} />
         )}
