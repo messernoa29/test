@@ -206,6 +206,29 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
         enriched_pages = _merge_page_technical(audit.pages, crawl_data)
         cultural = _build_cultural_audit(crawl_data)
         geo = _build_geo_audit(crawl_data)
+        # GEO citation test (LLM + web_search) — best-effort, only if we still
+        # have a comfortable margin before the hard timeout.
+        if _time.monotonic() - started < AUDIT_HARD_TIMEOUT_S - 150:
+            progress.add(job_id, "Test de citabilité par les IA…")
+            try:
+                pages_for_geo = [p.model_dump() if hasattr(p, "model_dump") else p for p in (enriched_pages or [])]
+                gc = _time_boxed_call(
+                    lambda: analyzer._run_geo_citation(crawl_data, pages_for_geo), 120
+                )
+                if gc:
+                    geo = geo.model_copy(update={
+                        "queryVerdicts": gc.get("queryVerdicts", []),
+                        "citedCount": gc.get("citedCount", 0),
+                        "queriesTested": gc.get("queriesTested", 0),
+                    })
+                    progress.add(
+                        job_id,
+                        f"Citabilité IA : site probablement cité sur {gc.get('citedCount',0)}/{gc.get('queriesTested',0)} requêtes testées",
+                    )
+                else:
+                    progress.add(job_id, "Test de citabilité IA ignoré (délai/erreur)")
+            except Exception as e:
+                logger.warning("GEO citation failed: %s", e)
         programmatic = _build_programmatic_audit(crawl_data)
         coverage = _build_crawl_coverage(crawl_data, detailed_count=len(enriched_pages or []))
         audit = audit.model_copy(
@@ -740,3 +763,18 @@ def _build_crawl_coverage(crawl_data, *, detailed_count: int = 0):
         cappedByLimit=capped_by_limit,
         cappedBySite=capped_by_site,
     )
+
+
+def _time_boxed_call(fn, timeout_s: float):
+    """Run fn in a worker thread; return its result or None on timeout/error."""
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    from concurrent.futures import TimeoutError as _FT
+    try:
+        with _TPE(max_workers=1) as ex:
+            return ex.submit(fn).result(timeout=timeout_s)
+    except _FT:
+        logger.warning("_time_boxed_call timed out after %ss", timeout_s)
+        return None
+    except Exception as e:
+        logger.warning("_time_boxed_call failed: %s", e)
+        return None

@@ -1045,6 +1045,94 @@ def _run_sxo(crawl: CrawlData, pages: list[dict]) -> Optional[dict]:
     }
 
 
+_GEO_CITATION_TEMPLATE = """Test de citabilité par les IA pour {domain}.
+
+Tu peux utiliser web_search pour vérifier qui est cité aujourd'hui sur ces requêtes (Google AI Overviews, Perplexity affichent leurs sources ; pour ChatGPT raisonne sur ce qu'il citerait probablement à partir de Wikipedia/Reddit/sites d'autorité).
+
+## Contexte du site
+- Thématiques / pages :
+{themes}
+- Mots-clés observés :
+{keywords}
+
+## Ta tâche
+Génère {n_queries} requêtes RÉALISTES qu'un utilisateur taperait dans ChatGPT / Perplexity / Google AI à propos de ce domaine d'activité, réparties sur les intentions : informational, transactional, local (si le site est local), navigational. Pour CHAQUE requête, évalue si **ce site précis** serait probablement cité dans la réponse IA, et pourquoi.
+
+## Pour chaque requête, produis
+- query : la requête
+- intent : "informational" | "transactional" | "local" | "navigational"
+- likelyCited : true/false — ce site serait-il cité dans la réponse IA ?
+- confidence : "low" | "medium" | "high"
+- citingEngines : liste parmi ["Google AI Overviews", "Perplexity", "ChatGPT", "aucun"] — où c'est plausible
+- reason : 1 phrase — pourquoi cité (contenu adapté, autorité, schema…) ou pourquoi pas (pas de contenu sur le sujet, contenu mal structuré, site sans autorité…)
+- competitorsCitedInstead : 1-4 domaines/marques qui seraient cités à la place
+- improvement : 1 action concrète pour devenir citable sur cette requête (ex: "Créer une page FAQ avec une réponse de 130 mots à 'comment X'")
+
+## Discipline
+- Sois honnête : un petit site local n'est PAS cité sur des requêtes génériques nationales. Ne mets likelyCited=true que si c'est crédible.
+- Si tu ne peux pas vérifier, mets confidence="low".
+
+## Sortie STRICTE (aucun texte hors balises)
+
+<GEO_CITATION_JSON>
+{{
+  "verdicts": [
+    {{"query": "...", "intent": "informational", "likelyCited": false, "confidence": "low", "citingEngines": ["aucun"], "reason": "...", "competitorsCitedInstead": ["..."], "improvement": "..."}}
+  ]
+}}
+</GEO_CITATION_JSON>"""
+
+_GEO_CITATION_QUERIES = 8
+
+
+def _run_geo_citation(crawl: CrawlData, pages: list[dict]) -> Optional[dict]:
+    """LLM + web_search: would AI assistants cite this site on plausible
+    intent queries? Returns dict with verdicts/citedCount/queriesTested or
+    None on failure."""
+    themes = "\n".join(f"  - {p.title or p.h1 or p.url}" for p in crawl.pages[:20]) or "  (aucun)"
+    kws = [k for k, _ in _collect_observed_keywords(crawl, pages)][:25]
+    keywords = "\n".join(f"  - {k}" for k in kws) or "  (aucun)"
+    prompt = _GEO_CITATION_TEMPLATE.format(
+        domain=crawl.domain, themes=themes, keywords=keywords,
+        n_queries=_GEO_CITATION_QUERIES,
+    )
+    try:
+        response = get_llm_client().generate(
+            system=_SYSTEM, user_prompt=prompt, max_tokens=5000, enable_web_search=True,
+        )
+        payload = _extract_json(response, tag="GEO_CITATION_JSON", context=crawl.domain)
+    except Exception as e:
+        logger.warning("GEO citation pass failed for %s: %s", crawl.domain, e)
+        return None
+    if not isinstance(payload, dict):
+        return None
+    verdicts = payload.get("verdicts")
+    if not isinstance(verdicts, list):
+        return None
+    clean: list[dict] = []
+    valid_intent = {"informational", "transactional", "local", "navigational"}
+    valid_conf = {"low", "medium", "high"}
+    for v in verdicts:
+        if not isinstance(v, dict) or not v.get("query"):
+            continue
+        intent = str(v.get("intent", "")).lower()
+        v["intent"] = intent if intent in valid_intent else "informational"
+        conf = str(v.get("confidence", "low")).lower()
+        v["confidence"] = conf if conf in valid_conf else "low"
+        v["likelyCited"] = bool(v.get("likelyCited"))
+        if not isinstance(v.get("citingEngines"), list):
+            v["citingEngines"] = []
+        if not isinstance(v.get("competitorsCitedInstead"), list):
+            v["competitorsCitedInstead"] = []
+        clean.append(v)
+    cited = sum(1 for v in clean if v.get("likelyCited"))
+    return {
+        "queryVerdicts": clean,
+        "citedCount": cited,
+        "queriesTested": len(clean),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 

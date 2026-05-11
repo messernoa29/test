@@ -518,8 +518,23 @@ class GeoPageScore(BaseModel):
     weaknesses: list[str] = Field(default_factory=list)
 
 
+class GeoQueryVerdict(BaseModel):
+    """One plausible search query and whether the site would likely be cited
+    by AI assistants on it."""
+
+    query: str
+    intent: str = ""  # "informational" | "transactional" | "local" | "navigational"
+    likelyCited: bool = False
+    confidence: str = "low"  # "low" | "medium" | "high"
+    citingEngines: list[str] = Field(default_factory=list)  # e.g. ["Google AI Overviews", "Perplexity"]
+    reason: str = ""             # why cited / why not
+    competitorsCitedInstead: list[str] = Field(default_factory=list)
+    improvement: str = ""        # one concrete action to get cited
+
+
 class GeoAuditSummary(BaseModel):
-    """GEO (AI-citability) audit. Page scores + site-level robots/llms.txt."""
+    """GEO (AI-citability) audit. Page scores + site-level robots/llms.txt +
+    a real "would AI cite this site?" test on plausible intent queries."""
 
     averagePageScore: int = 0
     pageScores: list[GeoPageScore] = Field(default_factory=list)
@@ -527,6 +542,10 @@ class GeoAuditSummary(BaseModel):
     siteWeaknesses: list[str] = Field(default_factory=list)
     aiCrawlerStatus: dict[str, str] = Field(default_factory=dict)  # UA -> status
     hasLlmsTxt: bool = False
+    # LLM-based citation test (optional, best-effort).
+    queryVerdicts: list[GeoQueryVerdict] = Field(default_factory=list)
+    citedCount: int = 0       # how many of the tested queries the site would likely be cited on
+    queriesTested: int = 0
 
 
 class SxoPageVerdict(BaseModel):

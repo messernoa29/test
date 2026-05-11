@@ -279,7 +279,26 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
             f"- Score de citabilité moyen : {geo.averagePageScore}/100"
         )
         L.append(f"- /llms.txt : {'présent' if geo.hasLlmsTxt else 'absent'}")
+        if geo.queriesTested:
+            L.append(
+                f"- Test de citation IA : site probablement cité sur "
+                f"{geo.citedCount}/{geo.queriesTested} requêtes testées"
+            )
         L.append("")
+        if geo.queryVerdicts:
+            L.append("### Test de citabilité IA par requête")
+            L.append("")
+            for v in geo.queryVerdicts:
+                mark = "✅ cité" if v.likelyCited else "❌ pas cité"
+                eng = f" ({', '.join(v.citingEngines)})" if v.citingEngines else ""
+                L.append(f"- **« {v.query} »** — {mark}{eng} · intention : {v.intent} · confiance : {v.confidence}")
+                if v.reason:
+                    L.append(f"  - {v.reason}")
+                if v.competitorsCitedInstead:
+                    L.append(f"  - Cités à la place : {', '.join(v.competitorsCitedInstead)}")
+                if v.improvement:
+                    L.append(f"  - [ ] {v.improvement}")
+            L.append("")
         if geo.siteStrengths:
             L.append("### Points forts (site)")
             for s in geo.siteStrengths:

@@ -1,6 +1,6 @@
 'use client'
 
-import type { GeoAuditSummary, GeoPageScore } from '@/lib/types'
+import type { GeoAuditSummary, GeoPageScore, GeoQueryVerdict } from '@/lib/types'
 
 interface Props {
   data?: GeoAuditSummary
@@ -25,6 +25,30 @@ export function GeoTab({ data }: Props) {
         avec réponse directe, des headings en questions, des stats sourcées,
         du HTML server-rendered, et les crawlers AI autorisés.
       </p>
+
+      {/* Citation test by query */}
+      {data.queriesTested > 0 && (
+        <section>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
+            Test de citabilité IA par requête
+          </h3>
+          <p className="text-xs text-text-tertiary mb-3">
+            On a généré {data.queriesTested} requêtes plausibles selon
+            l&apos;intention de recherche et estimé si une IA citerait ce site —
+            site probablement cité sur{' '}
+            <strong>
+              {data.citedCount}/{data.queriesTested}
+            </strong>
+            . Estimation IA + recherche web ; ChatGPT/Perplexity ne sont pas
+            interrogeables directement, leurs verdicts sont des projections.
+          </p>
+          <div className="space-y-2">
+            {data.queryVerdicts.map((v, i) => (
+              <QueryVerdictRow key={i} v={v} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Headline */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -218,6 +242,53 @@ function Panel({
       >
         {children}
       </ul>
+    </div>
+  )
+}
+
+function QueryVerdictRow({ v }: { v: GeoQueryVerdict }) {
+  const intentLabel: Record<string, string> = {
+    informational: 'info',
+    transactional: 'transactionnel',
+    local: 'local',
+    navigational: 'navigationnel',
+  }
+  const confColor =
+    v.confidence === 'high'
+      ? 'text-text-primary'
+      : v.confidence === 'medium'
+        ? 'text-text-secondary'
+        : 'text-text-tertiary'
+  return (
+    <div className="border border-[var(--border-subtle)] rounded-md bg-bg-surface p-3">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <span className="text-sm text-text-primary">« {v.query} »</span>
+        <span
+          className={`text-xs font-medium flex-shrink-0 ${
+            v.likelyCited
+              ? 'text-[var(--status-ok-text)]'
+              : 'text-[var(--status-warning-text)]'
+          }`}
+        >
+          {v.likelyCited ? 'Probablement cité' : 'Pas cité'}
+        </span>
+      </div>
+      <div className="text-[11px] text-text-tertiary mb-1.5">
+        {intentLabel[v.intent] ?? v.intent} ·{' '}
+        <span className={confColor}>confiance {v.confidence}</span>
+        {v.citingEngines.length > 0 ? ` · ${v.citingEngines.join(', ')}` : ''}
+      </div>
+      {v.reason && (
+        <p className="text-[11px] text-text-secondary mb-1">{v.reason}</p>
+      )}
+      {v.competitorsCitedInstead.length > 0 && (
+        <p className="text-[11px] text-text-tertiary mb-1">
+          Cités à la place : {v.competitorsCitedInstead.join(', ')}
+        </p>
+      )}
+      {v.improvement && (
+        <p className="text-[11px] text-[var(--primary)]">→ {v.improvement}</p>
+      )}
     </div>
   )
 }

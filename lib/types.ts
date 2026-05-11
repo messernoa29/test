@@ -257,6 +257,17 @@ export interface GeoPageScore {
   weaknesses: string[]
 }
 
+export interface GeoQueryVerdict {
+  query: string
+  intent: string
+  likelyCited: boolean
+  confidence: 'low' | 'medium' | 'high'
+  citingEngines: string[]
+  reason: string
+  competitorsCitedInstead: string[]
+  improvement: string
+}
+
 export interface GeoAuditSummary {
   averagePageScore: number
   pageScores: GeoPageScore[]
@@ -264,6 +275,9 @@ export interface GeoAuditSummary {
   siteWeaknesses: string[]
   aiCrawlerStatus: Record<string, string>
   hasLlmsTxt: boolean
+  queryVerdicts: GeoQueryVerdict[]
+  citedCount: number
+  queriesTested: number
 }
 
 export interface CulturalPageIssue {
