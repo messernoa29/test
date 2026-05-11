@@ -87,6 +87,35 @@ def _page_block(p: PageAnalysis) -> list[str]:
     for b in status_bits:
         lines.append(f"- {b}")
     lines.append("")
+    t = p.technical
+    if t is not None:
+        canon = (
+            "absent" if t.canonical is None
+            else "auto-référent" if t.canonicalIsSelf
+            else f"→ {t.canonical}"
+        )
+        tech_bits = [
+            f"HTTP {t.statusCode}" if t.statusCode is not None else "HTTP —",
+            f"profondeur {t.depth}" if t.depth is not None else "profondeur —",
+            f"{t.wordCount} mots",
+            f"ratio texte/HTML {round(t.textRatio*100)}%" if t.htmlBytes else "ratio —",
+            f"liens int/ext {t.internalLinksOut}/{t.externalLinksOut}",
+            f"images {t.imagesCount} (sans alt {t.imagesWithoutAlt})",
+            f"canonical {canon}",
+            f"robots {t.robotsMeta or '—'}",
+            f"lang {t.htmlLang or '—'}",
+            f"hreflang {', '.join(t.hreflangLangs) if t.hreflangLangs else '—'}",
+            "viewport présent" if t.hasViewportMeta else "viewport ABSENT",
+            "mixed content OUI" if t.hasMixedContent else "mixed content non",
+            f"OG {'og:title' if t.ogTitle else 'absent'}",
+            f"schema {', '.join(t.schemaTypes) if t.schemaTypes else '—'}",
+        ]
+        lines.append("- _Technique :_ " + " · ".join(tech_bits))
+        if t.redirectChain:
+            lines.append(f"- _Redirections :_ {' → '.join(t.redirectChain)}")
+        if t.issues:
+            lines.append(f"- _Problèmes crawl :_ {'; '.join(t.issues)}")
+        lines.append("")
     if p.missingKeywords:
         lines.append(f"Mots-clés cibles manquants : {', '.join(p.missingKeywords)}")
         lines.append("")

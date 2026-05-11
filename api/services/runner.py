@@ -102,8 +102,13 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
         )
 
         audit = analyzer.analyze(crawl_data)
+        enriched_pages = _merge_page_technical(audit.pages, crawl_data)
         audit = audit.model_copy(
-            update={"id": job_id, "technicalCrawl": crawl_data.technicalCrawl}
+            update={
+                "id": job_id,
+                "technicalCrawl": crawl_data.technicalCrawl,
+                "pages": enriched_pages,
+            }
         )
         if audit.domain:
             store.update_domain(job_id, audit.domain)
@@ -347,3 +352,69 @@ def create_ai_visibility_job(
     get_store().save_ai_check(check)
     submit_ai_check(check.id)
     return check
+
+
+# ---------------------------------------------------------------------------
+# Per-page technical enrichment
+#
+# The LLM produces PageAnalysis entries from the compact crawl payload but
+# doesn't carry the full crawl facts (status code, depth, OG tags, ratios…).
+# We merge those in from CrawlData here, matching by normalized URL, and also
+# attach the per-URL issue list computed by the technical crawl.
+
+
+def _merge_page_technical(pages, crawl_data):
+    """Return a new list of PageAnalysis with .technical populated, or the
+    original list if there's nothing to merge."""
+    if not pages:
+        return pages
+    from api.models import PageTechnical
+    from api.services.crawler import _normalize  # local import to avoid cycle
+
+    crawl_by_url = {_normalize(p.url): p for p in (crawl_data.pages or [])}
+    tc_rows_by_url = {}
+    if crawl_data.technicalCrawl:
+        tc_rows_by_url = {
+            _normalize(r.url): r for r in crawl_data.technicalCrawl.rows
+        }
+
+    out = []
+    for pa in pages:
+        norm = _normalize(pa.url)
+        cp = crawl_by_url.get(norm)
+        row = tc_rows_by_url.get(norm)
+        if cp is None and row is None:
+            out.append(pa)
+            continue
+        canonical = cp.canonical if cp else None
+        canonical_is_self = None
+        if cp and canonical:
+            canonical_is_self = canonical in (norm, _normalize(cp.finalUrl or ""))
+        og = cp.openGraph if (cp and cp.openGraph) else None
+        tech = PageTechnical(
+            statusCode=(cp.statusCode if cp else (row.statusCode if row else None)),
+            depth=(row.depth if row else None),
+            htmlBytes=(cp.htmlBytes if cp else (row.htmlBytes if row else 0)),
+            wordCount=(cp.wordCount if cp else (row.wordCount if row else 0)),
+            textRatio=(row.textRatio if row else 0.0),
+            canonical=canonical,
+            canonicalIsSelf=canonical_is_self,
+            robotsMeta=(cp.robotsMeta if cp else ""),
+            htmlLang=(cp.htmlLang if cp else ""),
+            hreflangLangs=sorted({h.lang for h in cp.hreflang}) if cp and cp.hreflang else [],
+            internalLinksOut=(cp.internalLinksCount if cp else (row.internalLinksOut if row else 0)),
+            externalLinksOut=(cp.externalLinksCount if cp else (row.externalLinksOut if row else 0)),
+            imagesCount=(len(cp.images) if cp else (row.imagesCount if row else 0)),
+            imagesWithoutAlt=(cp.imagesWithoutAlt if cp else (row.imagesWithoutAlt if row else 0)),
+            hasViewportMeta=(og.hasViewportMeta if og else True),
+            hasMixedContent=(cp.hasMixedContent if cp else False),
+            ogTitle=(og.ogTitle if og else None),
+            ogDescription=(og.ogDescription if og else None),
+            ogImage=(og.ogImage if og else None),
+            twitterCard=(og.twitterCard if og else None),
+            redirectChain=(cp.redirectChain if cp else []),
+            schemaTypes=sorted({s.type for s in cp.schemas}) if cp and cp.schemas else [],
+            issues=(row.issues if row else []),
+        )
+        out.append(pa.model_copy(update={"technical": tech}))
+    return out

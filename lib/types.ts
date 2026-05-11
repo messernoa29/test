@@ -30,6 +30,32 @@ export interface SectionResult {
   findings: Finding[]
 }
 
+export interface PageTechnical {
+  statusCode: number | null
+  depth: number | null
+  htmlBytes: number
+  wordCount: number
+  textRatio: number
+  canonical: string | null
+  canonicalIsSelf: boolean | null
+  robotsMeta: string
+  htmlLang: string
+  hreflangLangs: string[]
+  internalLinksOut: number
+  externalLinksOut: number
+  imagesCount: number
+  imagesWithoutAlt: number
+  hasViewportMeta: boolean
+  hasMixedContent: boolean
+  ogTitle: string | null
+  ogDescription: string | null
+  ogImage: string | null
+  twitterCard: string | null
+  redirectChain: string[]
+  schemaTypes: string[]
+  issues: string[]
+}
+
 export interface PageAnalysis {
   url: string
   status: 'critical' | 'warning' | 'improve' | 'ok'
@@ -43,6 +69,7 @@ export interface PageAnalysis {
   missingKeywords: string[]
   findings: Finding[]
   recommendation?: PageRecommendation
+  technical?: PageTechnical
 }
 
 export interface PageRecommendation {

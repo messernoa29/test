@@ -142,6 +142,34 @@ class PageRecommendation(BaseModel):
         return max(0, n)
 
 
+class PageTechnical(BaseModel):
+    """Crawl-derived on-page facts merged into a PageAnalysis by the runner."""
+
+    statusCode: Optional[int] = None
+    depth: Optional[int] = None
+    htmlBytes: int = 0
+    wordCount: int = 0
+    textRatio: float = 0.0
+    canonical: Optional[str] = None
+    canonicalIsSelf: Optional[bool] = None
+    robotsMeta: str = ""
+    htmlLang: str = ""
+    hreflangLangs: list[str] = Field(default_factory=list)
+    internalLinksOut: int = 0
+    externalLinksOut: int = 0
+    imagesCount: int = 0
+    imagesWithoutAlt: int = 0
+    hasViewportMeta: bool = True
+    hasMixedContent: bool = False
+    ogTitle: Optional[str] = None
+    ogDescription: Optional[str] = None
+    ogImage: Optional[str] = None
+    twitterCard: Optional[str] = None
+    redirectChain: list[str] = Field(default_factory=list)
+    schemaTypes: list[str] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
+
+
 class PageAnalysis(BaseModel):
     url: str
     status: PageStatus
@@ -155,6 +183,7 @@ class PageAnalysis(BaseModel):
     missingKeywords: list[str] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
     recommendation: Optional[PageRecommendation] = None
+    technical: Optional[PageTechnical] = None
 
     @field_validator("title", "h1", "url", mode="before")
     @classmethod

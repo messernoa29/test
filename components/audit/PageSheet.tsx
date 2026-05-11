@@ -1,4 +1,4 @@
-import type { PageAnalysis, PageRecommendation } from '@/lib/types'
+import type { PageAnalysis, PageRecommendation, PageTechnical } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import { PAGE_STATUS_LABEL } from '@/lib/design'
 import { FindingRow } from './FindingRow'
@@ -22,6 +22,7 @@ export function PageSheet({ page }: PageSheetProps) {
 
       <div className="px-5 py-4 space-y-5">
         <MetaGrid page={page} />
+        {page.technical && <TechnicalBlock t={page.technical} />}
         <KeywordsBlock page={page} />
 
         {page.findings.length > 0 && (
@@ -77,6 +78,104 @@ function MetaGrid({ page }: { page: PageAnalysis }) {
           <div className="font-mono text-[11px] text-text-tertiary pt-0.5">{r.extra}</div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function TechnicalBlock({ t }: { t: PageTechnical }) {
+  const fmtBytes = (n: number) =>
+    n >= 1024 ? `${(n / 1024).toFixed(1)} Ko` : `${n} o`
+  const canon =
+    t.canonical == null
+      ? 'absent'
+      : t.canonicalIsSelf
+        ? 'auto-référent ✓'
+        : `→ ${t.canonical}`
+  const cells: { label: string; value: string; warn?: boolean }[] = [
+    {
+      label: 'HTTP',
+      value: String(t.statusCode ?? '—'),
+      warn: t.statusCode != null && t.statusCode >= 400,
+    },
+    { label: 'Profondeur', value: t.depth != null ? `${t.depth} clics` : '—' },
+    { label: 'Poids HTML', value: fmtBytes(t.htmlBytes) },
+    { label: 'Mots', value: String(t.wordCount || '—') },
+    {
+      label: 'Ratio texte/HTML',
+      value: t.htmlBytes ? `${Math.round(t.textRatio * 100)}%` : '—',
+      warn: t.htmlBytes > 0 && t.textRatio < 0.1,
+    },
+    { label: 'Liens int/ext', value: `${t.internalLinksOut} / ${t.externalLinksOut}` },
+    {
+      label: 'Images (sans alt)',
+      value: `${t.imagesCount}${t.imagesWithoutAlt ? ` (${t.imagesWithoutAlt})` : ''}`,
+      warn: t.imagesWithoutAlt > 0,
+    },
+    { label: 'Canonical', value: canon, warn: t.canonicalIsSelf === false },
+    {
+      label: 'robots meta',
+      value: t.robotsMeta || '—',
+      warn: t.robotsMeta.includes('noindex'),
+    },
+    { label: 'lang', value: t.htmlLang || '—' },
+    {
+      label: 'hreflang',
+      value: t.hreflangLangs.length ? t.hreflangLangs.join(', ') : '—',
+    },
+    {
+      label: '<meta viewport>',
+      value: t.hasViewportMeta ? 'présent ✓' : 'absent',
+      warn: !t.hasViewportMeta,
+    },
+    {
+      label: 'Mixed content',
+      value: t.hasMixedContent ? 'OUI ⚠' : 'non',
+      warn: t.hasMixedContent,
+    },
+    {
+      label: 'Open Graph',
+      value: t.ogTitle ? 'og:title ✓' : 'absent',
+      warn: !t.ogTitle,
+    },
+    {
+      label: 'Twitter card',
+      value: t.twitterCard || '—',
+    },
+    {
+      label: 'Schema.org',
+      value: t.schemaTypes.length ? t.schemaTypes.join(', ') : '—',
+    },
+  ]
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary mb-2">
+        Données techniques (crawl)
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 border border-[var(--border-subtle)] rounded-md p-3">
+        {cells.map((c) => (
+          <div key={c.label} className="flex justify-between gap-2 text-xs">
+            <span className="text-text-tertiary">{c.label}</span>
+            <span
+              className={`text-right ${c.warn ? 'text-[var(--status-critical-text)]' : 'text-text-primary'}`}
+            >
+              {c.value}
+            </span>
+          </div>
+        ))}
+      </div>
+      {t.redirectChain.length > 0 && (
+        <p className="mt-2 text-[11px] text-[var(--status-warning-text)]">
+          Atteinte via {t.redirectChain.length} redirection(s) :{' '}
+          {t.redirectChain.join(' → ')}
+        </p>
+      )}
+      {t.issues.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-[11px] text-text-secondary">
+          {t.issues.map((i, idx) => (
+            <li key={idx}>· {i}</li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
