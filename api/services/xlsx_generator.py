@@ -111,6 +111,10 @@ def generate_xlsx(
         pages_ws = wb.create_sheet("Pages")
         _write_pages(pages_ws, audit.pages)
 
+    if audit.technicalCrawl and audit.technicalCrawl.rows:
+        crawl_ws = wb.create_sheet("Crawl technique")
+        _write_technical_crawl(crawl_ws, audit.technicalCrawl)
+
     if audit.missingPages:
         missing_ws = wb.create_sheet("À créer")
         _write_missing(missing_ws, audit.missingPages)
@@ -309,6 +313,51 @@ def _write_missing(ws: Worksheet, pages: list[MissingPage]) -> None:
 
     if row > 2:
         ws.auto_filter.ref = f"A1:D{row - 1}"
+    ws.freeze_panes = "A2"
+
+
+def _write_technical_crawl(ws: Worksheet, tc) -> None:
+    """Screaming-Frog-style crawl table — one row per visited URL."""
+    headers = [
+        "URL", "Code HTTP", "Indexable", "Raison non-indexable", "Profondeur",
+        "Poids HTML (o)", "Mots", "Ratio texte/HTML", "Title (car.)",
+        "Meta (car.)", "H1", "H2", "Liens internes", "Liens externes",
+        "Images", "Images sans alt", "Type de page", "Problèmes",
+    ]
+    _write_header(ws, headers)
+    widths = (55, 11, 11, 30, 11, 14, 9, 16, 12, 12, 7, 7, 14, 14, 9, 14, 16, 70)
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    row = 2
+    for r in tc.rows:
+        ws.cell(row=row, column=1, value=r.url).font = _MONO_FONT
+        sc = ws.cell(row=row, column=2, value=r.statusCode if r.statusCode is not None else "ERR")
+        sc.font = _MONO_FONT
+        sc.alignment = Alignment(horizontal="center")
+        ws.cell(row=row, column=3, value="Oui" if r.isIndexable else "Non").alignment = Alignment(horizontal="center")
+        _wrap_cell(ws.cell(row=row, column=4, value=r.indexabilityReason or ""))
+        dc = ws.cell(row=row, column=5, value=r.depth if r.depth is not None else "—")
+        dc.alignment = Alignment(horizontal="center")
+        ws.cell(row=row, column=6, value=r.htmlBytes).number_format = "#,##0"
+        ws.cell(row=row, column=7, value=r.wordCount).number_format = "0"
+        rc = ws.cell(row=row, column=8, value=round(r.textRatio, 3) if r.htmlBytes else "—")
+        if r.htmlBytes:
+            rc.number_format = "0.0%"
+        ws.cell(row=row, column=9, value=r.titleLength).number_format = "0"
+        ws.cell(row=row, column=10, value=r.metaDescLength).number_format = "0"
+        ws.cell(row=row, column=11, value=r.h1Count).number_format = "0"
+        ws.cell(row=row, column=12, value=r.h2Count).number_format = "0"
+        ws.cell(row=row, column=13, value=r.internalLinksOut).number_format = "0"
+        ws.cell(row=row, column=14, value=r.externalLinksOut).number_format = "0"
+        ws.cell(row=row, column=15, value=r.imagesCount).number_format = "0"
+        ws.cell(row=row, column=16, value=r.imagesWithoutAlt).number_format = "0"
+        ws.cell(row=row, column=17, value=getattr(r, "pageType", "") or "")
+        _wrap_cell(ws.cell(row=row, column=18, value="; ".join(r.issues) if r.issues else "OK"))
+        row += 1
+
+    if row > 2:
+        ws.auto_filter.ref = f"A1:R{row - 1}"
     ws.freeze_panes = "A2"
 
 
