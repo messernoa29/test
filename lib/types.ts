@@ -206,6 +206,50 @@ export interface AuditResult {
   programmaticAudit?: ProgrammaticAuditSummary
   sxoAudit?: SxoAuditSummary
   crawlCoverage?: CrawlCoverage
+  accessibilityAudit?: AccessibilityAudit
+  responsiveAudit?: ResponsiveAudit
+}
+
+export interface A11yPageIssue {
+  url: string
+  score: number
+  issues: string[]
+}
+
+export interface AccessibilityAudit {
+  averageScore: number
+  pagesWithoutLang: number
+  imagesWithoutAlt: number
+  formInputsWithoutLabel: number
+  linksGeneric: number
+  buttonsAsDiv: number
+  pagesWithHeadingIssues: number
+  pagesWithPositiveTabindex: number
+  pagesWithoutLandmarks: number
+  pageScores: A11yPageIssue[]
+  llmVerdict: string
+  llmTopFixes: string[]
+  llmPagesEvaluated: number
+}
+
+export interface ResponsivePageIssue {
+  url: string
+  horizontalScrollAt375: boolean | null
+  horizontalScrollAt768: boolean | null
+  overflowingElementsAt375: number | null
+  smallTouchTargetsAt375: number | null
+  issues: string[]
+}
+
+export interface ResponsiveAudit {
+  pagesWithoutViewport: number
+  pagesBlockingZoom: number
+  pagesWithMediaQueries: number
+  imagesWithSrcsetRatio: number
+  renderedPagesTested: number
+  pagesWithHorizontalScroll: number
+  pageResults: ResponsivePageIssue[]
+  summary: string
 }
 
 export interface CrawlCoverage {

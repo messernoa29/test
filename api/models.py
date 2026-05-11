@@ -385,6 +385,51 @@ class CrawlPage(BaseModel):
     hasMixedContent: bool = False
     # CTA-looking anchor/button texts (for cultural-adaptation audit).
     ctaTexts: list[str] = Field(default_factory=list)
+    # Static accessibility signals (computed in the crawler from the HTML).
+    a11y: Optional["PageA11y"] = None
+    # Static responsive signals (computed in the crawler from HTML/CSS).
+    responsive: Optional["PageResponsive"] = None
+
+
+class PageA11y(BaseModel):
+    """WCAG signals detectable from static HTML (no rendering)."""
+
+    htmlHasLang: bool = False
+    imagesTotal: int = 0
+    imagesWithoutAlt: int = 0
+    imagesAltEmpty: int = 0           # alt="" — fine for decorative, flagged en masse
+    formInputsTotal: int = 0
+    formInputsWithoutLabel: int = 0   # no <label for>, aria-label, aria-labelledby, title
+    buttonsAsDiv: int = 0             # <div onclick> / role=button without keyboard handling
+    linksEmpty: int = 0               # <a> with no text and no aria-label
+    linksGeneric: int = 0             # "cliquez ici", "en savoir plus", "lire la suite"…
+    h1Count: int = 0
+    headingOrderIssues: int = 0       # skipped levels (h1 → h3) etc.
+    positiveTabindex: int = 0         # tabindex > 0 — breaks tab order
+    iframeWithoutTitle: int = 0
+    skipLinkPresent: bool = False     # "skip to content" link near the top
+    landmarksPresent: bool = False    # <main> / role=main present
+    ariaInvalidCount: int = 0         # obviously broken aria-* (e.g. aria-hidden=foo)
+    issues: list[str] = Field(default_factory=list)  # short labels
+
+
+class PageResponsive(BaseModel):
+    """Responsive signals — static now, enriched by Playwright at 3 widths."""
+
+    hasViewportMeta: bool = False
+    viewportContent: str = ""         # raw content of <meta name=viewport>
+    viewportBlocksZoom: bool = False  # maximum-scale=1 / user-scalable=no
+    cssMediaQueries: int = 0          # count of @media rules in inline/linked CSS we saw
+    imagesWithSrcset: int = 0
+    imagesTotal: int = 0
+    fixedPxFontDecls: int = 0         # font-size: Npx in inline styles
+    largeFixedWidthDecls: int = 0     # width: Npx with N > 768 in inline styles
+    # Filled by the Playwright pass (None until then):
+    horizontalScrollAt375: Optional[bool] = None
+    horizontalScrollAt768: Optional[bool] = None
+    overflowingElementsAt375: Optional[int] = None
+    smallTouchTargetsAt375: Optional[int] = None  # interactive elements < 44x44 CSS px
+    issues: list[str] = Field(default_factory=list)
 
 
 class LinkGraphPageStat(BaseModel):
@@ -626,6 +671,56 @@ class CrawlCoverage(BaseModel):
     cappedBySite: bool = False     # True if the site simply has fewer pages
 
 
+class A11yPageIssue(BaseModel):
+    url: str
+    score: int = 0  # 0-100, higher = more accessible
+    issues: list[str] = Field(default_factory=list)
+
+
+class AccessibilityAudit(BaseModel):
+    """WCAG audit — static signals aggregated across pages + an optional LLM
+    verdict on a few key pages."""
+
+    averageScore: int = 0
+    # Site-wide aggregates (counts over all crawled pages).
+    pagesWithoutLang: int = 0
+    imagesWithoutAlt: int = 0
+    formInputsWithoutLabel: int = 0
+    linksGeneric: int = 0
+    buttonsAsDiv: int = 0
+    pagesWithHeadingIssues: int = 0
+    pagesWithPositiveTabindex: int = 0
+    pagesWithoutLandmarks: int = 0
+    pageScores: list[A11yPageIssue] = Field(default_factory=list)  # worst first
+    # LLM verdict on sampled pages (optional, best-effort).
+    llmVerdict: str = ""               # 2-4 sentence WCAG summary
+    llmTopFixes: list[str] = Field(default_factory=list)  # prioritised fixes
+    llmPagesEvaluated: int = 0
+
+
+class ResponsivePageIssue(BaseModel):
+    url: str
+    horizontalScrollAt375: Optional[bool] = None
+    horizontalScrollAt768: Optional[bool] = None
+    overflowingElementsAt375: Optional[int] = None
+    smallTouchTargetsAt375: Optional[int] = None
+    issues: list[str] = Field(default_factory=list)
+
+
+class ResponsiveAudit(BaseModel):
+    """Responsive / mobile audit — static signals + Playwright rendering at
+    375 / 768 / 1280 px on a few key pages."""
+
+    pagesWithoutViewport: int = 0
+    pagesBlockingZoom: int = 0
+    pagesWithMediaQueries: int = 0     # at least one @media seen
+    imagesWithSrcsetRatio: float = 0.0  # over all <img>
+    renderedPagesTested: int = 0       # how many pages we actually rendered
+    pagesWithHorizontalScroll: int = 0  # at 375 or 768
+    pageResults: list[ResponsivePageIssue] = Field(default_factory=list)
+    summary: str = ""
+
+
 class AuditResult(BaseModel):
     id: str
     domain: str
@@ -656,6 +751,10 @@ class AuditResult(BaseModel):
     sxoAudit: Optional[SxoAuditSummary] = None
     # How many pages the crawl actually covered vs the requested depth.
     crawlCoverage: Optional[CrawlCoverage] = None
+    # Accessibility (WCAG) audit — populated by the runner.
+    accessibilityAudit: Optional[AccessibilityAudit] = None
+    # Responsive / mobile audit — populated by the runner.
+    responsiveAudit: Optional[ResponsiveAudit] = None
 
     @field_validator("globalScore", mode="before")
     @classmethod

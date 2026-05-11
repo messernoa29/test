@@ -6,13 +6,22 @@ import { DriftView } from './DriftView'
 import { TechnicalCrawlTab } from './TechnicalCrawlTab'
 import { VisibilityTab } from './VisibilityTab'
 import { GeoTab } from './GeoTab'
+import { A11yTab } from './A11yTab'
 import { OverviewTab } from './detail/OverviewTab'
 import { PagesTab } from './detail/PagesTab'
 import { MissingTab } from './detail/MissingTab'
 
 // Axis-by-axis content now lives inside OverviewTab as accordions, so there
 // are no per-axis tabs anymore — just the cross-cutting views.
-type TabId = 'overview' | 'pages' | 'crawl' | 'visibility' | 'geo' | 'missing' | 'compare'
+type TabId =
+  | 'overview'
+  | 'pages'
+  | 'crawl'
+  | 'a11y'
+  | 'visibility'
+  | 'geo'
+  | 'missing'
+  | 'compare'
 
 interface Props {
   audit: AuditResult
@@ -31,6 +40,13 @@ export function AuditDetailView({ audit }: Props) {
         id: 'crawl',
         label: 'Crawl technique',
         count: audit.technicalCrawl!.pagesCrawled,
+      })
+    }
+    if (audit.accessibilityAudit || audit.responsiveAudit) {
+      t.push({
+        id: 'a11y',
+        label: 'Accessibilité & responsive',
+        count: audit.accessibilityAudit?.averageScore,
       })
     }
     const vis = audit.visibilityEstimate
@@ -96,6 +112,9 @@ export function AuditDetailView({ audit }: Props) {
             cultural={audit.culturalAudit}
             programmatic={audit.programmaticAudit}
           />
+        )}
+        {active === 'a11y' && (
+          <A11yTab a11y={audit.accessibilityAudit} responsive={audit.responsiveAudit} />
         )}
         {active === 'visibility' && (
           <VisibilityTab data={audit.visibilityEstimate} sxo={audit.sxoAudit} />

@@ -1218,6 +1218,58 @@ def _run_geo_citation(crawl: CrawlData, pages: list[dict]) -> Optional[dict]:
     }
 
 
+_A11Y_TEMPLATE = """Audit d'accessibilité (WCAG 2.1 AA) pour {domain}.
+
+On te donne les signaux automatiques détectés sur quelques pages clés (alt manquants, labels de formulaire, ARIA, hiérarchie de titres, tabindex, repères/landmarks…). À partir de ça ET de ton expertise WCAG, produis un verdict raisonné et priorisé. Tu n'as pas accès au rendu (contraste réel, focus visible, navigation clavier) — mentionne ces points comme "à vérifier manuellement" sans inventer de résultat.
+
+## Pages analysées (signaux automatiques)
+{pages_block}
+
+## Produis
+- verdict : 2-4 phrases — niveau d'accessibilité global, problèmes structurels les plus graves, ce qui empêche un utilisateur de lecteur d'écran / navigation clavier d'utiliser le site.
+- topFixes : 4-8 actions priorisées, concrètes (le QUOI + le OÙ), du plus impactant au moins. Format impératif. Inclure les critères WCAG concernés quand pertinent (ex: "1.1.1", "2.4.6", "3.3.2", "4.1.2"). Mentionne aussi 1-2 vérifications manuelles à faire (contraste, focus, clavier).
+
+## Discipline
+- Pas de blabla. Si les signaux sont bons, dis-le honnêtement.
+- Cite les comptes/URLs vus ci-dessus.
+
+## Sortie STRICTE (aucun texte hors balises)
+
+<A11Y_JSON>
+{{
+  "verdict": "...",
+  "topFixes": ["...", "..."]
+}}
+</A11Y_JSON>"""
+
+
+def run_a11y_verdict(domain: str, sample: list[dict]) -> Optional[dict]:
+    """LLM verdict on the accessibility of a few sampled pages. `sample` is a
+    list of {url, score, signals}. Returns {verdict, topFixes} or None."""
+    import json as _json
+    pages_block = "\n".join(
+        f"- {s['url']} (score auto {s.get('score')}/100)\n  signaux : "
+        + _json.dumps(s.get("signals", {}), ensure_ascii=False)
+        for s in sample
+    )
+    prompt = _A11Y_TEMPLATE.format(domain=domain, pages_block=pages_block)
+    try:
+        response = get_llm_client().generate(
+            system=_SYSTEM, user_prompt=prompt, max_tokens=3000, enable_web_search=False,
+        )
+        payload = _extract_json(response, tag="A11Y_JSON", context=domain)
+    except Exception as e:
+        logger.warning("A11y verdict failed for %s: %s", domain, e)
+        return None
+    if not isinstance(payload, dict):
+        return None
+    fixes = payload.get("topFixes")
+    return {
+        "verdict": str(payload.get("verdict", "")),
+        "topFixes": [str(x) for x in fixes] if isinstance(fixes, list) else [],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 

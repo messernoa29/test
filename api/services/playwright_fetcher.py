@@ -111,6 +111,81 @@ def fetch_rendered(url: str) -> Optional[str]:
         return None
 
 
+# JS run in the page to detect overflow + small touch targets at a width.
+_OVERFLOW_JS = """
+() => {
+  const docW = document.documentElement.scrollWidth;
+  const viewW = document.documentElement.clientWidth;
+  const hasHScroll = docW > viewW + 2;
+  let overflowing = 0;
+  if (hasHScroll) {
+    const all = document.querySelectorAll('body *');
+    for (const el of all) {
+      const r = el.getBoundingClientRect();
+      if (r.right > viewW + 2 || r.left < -2) { overflowing++; if (overflowing > 200) break; }
+    }
+  }
+  // Small touch targets among interactive elements.
+  let small = 0;
+  const inter = document.querySelectorAll('a, button, [role=button], input, select, textarea, [onclick]');
+  for (const el of inter) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue; // hidden
+    if (r.width < 44 || r.height < 44) { small++; if (small > 200) break; }
+  }
+  return { hasHScroll, overflowing, small };
+}
+"""
+
+
+def measure_responsive(url: str) -> Optional[dict]:
+    """Render `url` at 375 / 768 / 1280 px and measure horizontal scroll +
+    small touch targets. Returns a dict (or None on failure). Serialized
+    behind the same lock as fetch_rendered to avoid concurrent Chromiums."""
+    if not is_enabled() or not _check_available():
+        return None
+    from playwright.sync_api import Error as PWError
+    from playwright.sync_api import TimeoutError as PWTimeout
+    from playwright.sync_api import sync_playwright
+
+    out: dict = {
+        "horizontalScrollAt375": None,
+        "horizontalScrollAt768": None,
+        "overflowingElementsAt375": None,
+        "smallTouchTargetsAt375": None,
+    }
+    try:
+        with _FETCH_LOCK, sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            try:
+                ctx = browser.new_context(
+                    user_agent=_USER_AGENT, ignore_https_errors=True,
+                    java_script_enabled=True,
+                )
+                page = ctx.new_page()
+                page.set_default_timeout(_PLAYWRIGHT_TIMEOUT_MS)
+                for label, w, h in (("375", 375, 812), ("768", 768, 1024)):
+                    try:
+                        page.set_viewport_size({"width": w, "height": h})
+                        page.goto(url, wait_until="domcontentloaded")
+                        page.wait_for_timeout(_SETTLE_DELAY_MS)
+                        m = page.evaluate(_OVERFLOW_JS)
+                        if not isinstance(m, dict):
+                            continue
+                        out[f"horizontalScrollAt{label}"] = bool(m.get("hasHScroll"))
+                        if label == "375":
+                            out["overflowingElementsAt375"] = int(m.get("overflowing") or 0)
+                            out["smallTouchTargetsAt375"] = int(m.get("small") or 0)
+                    except (PWTimeout, PWError) as e:
+                        logger.debug("measure_responsive @%s on %s: %s", label, url, e)
+                return out
+            finally:
+                browser.close()
+    except Exception as e:
+        logger.warning("measure_responsive failed on %s: %s", url, e)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Heuristics
 

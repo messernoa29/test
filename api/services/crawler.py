@@ -548,6 +548,17 @@ def _fetch_page(
     external_links_count = _count_external_links(soup, url, origin)
     has_mixed_content = _detect_mixed_content(soup, url)
     cta_texts = _extract_cta_texts(soup)
+    from api.services import a11y_static as _a11y
+    try:
+        a11y_data = _a11y.extract_a11y(soup)
+    except Exception as e:
+        logger.debug("a11y extraction failed on %s: %s", url, e)
+        a11y_data = None
+    try:
+        responsive_data = _a11y.extract_responsive(soup, html)
+    except Exception as e:
+        logger.debug("responsive extraction failed on %s: %s", url, e)
+        responsive_data = None
 
     page = CrawlPage(
         url=url,
@@ -576,6 +587,8 @@ def _fetch_page(
         externalLinksCount=external_links_count,
         hasMixedContent=has_mixed_content,
         ctaTexts=cta_texts,
+        a11y=a11y_data,
+        responsive=responsive_data,
     )
     return page, result
 

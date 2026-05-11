@@ -270,6 +270,77 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
                 L.append(f"- Exemples : {', '.join(g.sampleUrls[:4])}")
             L.append("")
 
+    # Accessibility (WCAG)
+    a = audit.accessibilityAudit
+    if a is not None:
+        L.append("## Accessibilité (WCAG)")
+        L.append("")
+        L.append(f"- Score automatique moyen : {a.averageScore}/100")
+        agg_bits = []
+        if a.pagesWithoutLang:
+            agg_bits.append(f"{a.pagesWithoutLang} page(s) sans `<html lang>`")
+        if a.imagesWithoutAlt:
+            agg_bits.append(f"{a.imagesWithoutAlt} image(s) sans alt")
+        if a.formInputsWithoutLabel:
+            agg_bits.append(f"{a.formInputsWithoutLabel} champ(s) sans label")
+        if a.buttonsAsDiv:
+            agg_bits.append(f"{a.buttonsAsDiv} « bouton(s) » en `<div>`")
+        if a.linksGeneric:
+            agg_bits.append(f"{a.linksGeneric} lien(s) non descriptif(s)")
+        if a.pagesWithoutLandmarks:
+            agg_bits.append(f"{a.pagesWithoutLandmarks} page(s) sans `<main>`")
+        if a.pagesWithHeadingIssues:
+            agg_bits.append(f"{a.pagesWithHeadingIssues} page(s) à titres mal hiérarchisés")
+        if agg_bits:
+            L.append("- " + " · ".join(agg_bits))
+        L.append("")
+        if a.llmVerdict:
+            L.append("### Verdict (analyse IA)")
+            L.append("")
+            L.append(a.llmVerdict)
+            L.append("")
+        if a.llmTopFixes:
+            L.append("### Actions accessibilité prioritaires")
+            for f in a.llmTopFixes:
+                L.append(f"- [ ] {f}")
+            L.append("")
+        worst = [p for p in a.pageScores if p.score < 80][:15]
+        if worst:
+            L.append("### Pages les moins accessibles")
+            for p in worst:
+                L.append(f"- `{p.url}` — {p.score}/100")
+                for iss in p.issues:
+                    L.append(f"  - {iss}")
+            L.append("")
+
+    # Responsive / mobile
+    r = audit.responsiveAudit
+    if r is not None:
+        L.append("## Responsive / mobile")
+        L.append("")
+        if r.summary:
+            L.append(f"- {r.summary}")
+        rbits = []
+        if r.pagesWithoutViewport:
+            rbits.append(f"{r.pagesWithoutViewport} page(s) sans `<meta viewport>`")
+        if r.pagesBlockingZoom:
+            rbits.append(f"{r.pagesBlockingZoom} page(s) bloquant le zoom")
+        rbits.append(f"{r.pagesWithMediaQueries} page(s) avec media queries")
+        rbits.append(f"images responsive (srcset) : {round(r.imagesWithSrcsetRatio*100)}%")
+        if r.renderedPagesTested:
+            rbits.append(f"{r.renderedPagesTested} page(s) rendue(s) à 375/768/1280px")
+            if r.pagesWithHorizontalScroll:
+                rbits.append(f"{r.pagesWithHorizontalScroll} avec scroll horizontal")
+        L.append("- " + " · ".join(rbits))
+        L.append("")
+        with_issues = [p for p in r.pageResults if p.issues]
+        if with_issues:
+            for p in with_issues:
+                L.append(f"- `{p.url}`")
+                for iss in p.issues:
+                    L.append(f"  - [ ] {iss}")
+            L.append("")
+
     # GEO (AI citability)
     geo = audit.geoAudit
     if geo is not None:

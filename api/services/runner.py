@@ -234,6 +234,12 @@ def _run(job_id: str, url: str, max_pages: int = 50, platform: str = "unknown") 
                 logger.warning("GEO citation failed: %s", e)
         programmatic = _build_programmatic_audit(crawl_data)
         coverage = _build_crawl_coverage(crawl_data, detailed_count=len(enriched_pages or []))
+        # Accessibility — static aggregates + optional LLM verdict on a sample.
+        progress.add(job_id, "Analyse de l'accessibilité (WCAG)…")
+        a11y_audit = _build_accessibility_audit(crawl_data, started)
+        # Responsive — static signals + Playwright at 3 widths on a sample.
+        progress.add(job_id, "Test responsive (rendu mobile/tablette/desktop)…")
+        responsive_audit = _build_responsive_audit(crawl_data, started)
         audit = audit.model_copy(
             update={
                 "id": job_id,
@@ -243,6 +249,8 @@ def _run(job_id: str, url: str, max_pages: int = 50, platform: str = "unknown") 
                 "geoAudit": geo,
                 "programmaticAudit": programmatic,
                 "crawlCoverage": coverage,
+                "accessibilityAudit": a11y_audit,
+                "responsiveAudit": responsive_audit,
             }
         )
         if audit.domain:
@@ -781,3 +789,155 @@ def _time_boxed_call(fn, timeout_s: float):
     except Exception as e:
         logger.warning("_time_boxed_call failed: %s", e)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Accessibility audit
+
+
+def _build_accessibility_audit(crawl_data, started):
+    from api.models import AccessibilityAudit, A11yPageIssue
+    from api.services import a11y_static as a11y
+
+    pages = [p for p in (crawl_data.pages or []) if p.a11y is not None]
+    if not pages:
+        return AccessibilityAudit()
+
+    page_scores: list[A11yPageIssue] = []
+    agg = {
+        "pagesWithoutLang": 0, "imagesWithoutAlt": 0, "formInputsWithoutLabel": 0,
+        "linksGeneric": 0, "buttonsAsDiv": 0, "pagesWithHeadingIssues": 0,
+        "pagesWithPositiveTabindex": 0, "pagesWithoutLandmarks": 0,
+    }
+    total_score = 0
+    for p in pages:
+        a = p.a11y.model_dump() if hasattr(p.a11y, "model_dump") else dict(p.a11y)
+        s = a11y.a11y_score(a)
+        total_score += s
+        page_scores.append(A11yPageIssue(url=p.url, score=s, issues=list(a.get("issues", []))))
+        if not a.get("htmlHasLang"):
+            agg["pagesWithoutLang"] += 1
+        agg["imagesWithoutAlt"] += a.get("imagesWithoutAlt", 0)
+        agg["formInputsWithoutLabel"] += a.get("formInputsWithoutLabel", 0)
+        agg["linksGeneric"] += a.get("linksGeneric", 0)
+        agg["buttonsAsDiv"] += a.get("buttonsAsDiv", 0)
+        if a.get("headingOrderIssues") or a.get("h1Count", 0) != 1:
+            agg["pagesWithHeadingIssues"] += 1
+        if a.get("positiveTabindex"):
+            agg["pagesWithPositiveTabindex"] += 1
+        if not a.get("landmarksPresent"):
+            agg["pagesWithoutLandmarks"] += 1
+
+    avg = round(total_score / len(pages))
+    page_scores.sort(key=lambda x: x.score)
+
+    result = AccessibilityAudit(
+        averageScore=avg,
+        pageScores=page_scores[:30],
+        **agg,
+    )
+
+    # Optional LLM verdict on the 3 worst pages (best-effort, time-boxed).
+    if _time.monotonic() - started < AUDIT_HARD_TIMEOUT_S - 150:
+        try:
+            worst = page_scores[:3]
+            sample = []
+            for ps in worst:
+                cp = next((p for p in pages if p.url == ps.url), None)
+                if cp is None:
+                    continue
+                a = cp.a11y.model_dump() if hasattr(cp.a11y, "model_dump") else dict(cp.a11y)
+                sample.append({"url": cp.url, "score": ps.score, "signals": a})
+            if sample:
+                gc = _time_boxed_call(lambda: analyzer.run_a11y_verdict(crawl_data.domain, sample), 90)
+                if gc:
+                    result = result.model_copy(update={
+                        "llmVerdict": gc.get("verdict", ""),
+                        "llmTopFixes": gc.get("topFixes", []),
+                        "llmPagesEvaluated": len(sample),
+                    })
+        except Exception as e:
+            logger.warning("a11y LLM verdict failed: %s", e)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Responsive audit
+
+
+def _build_responsive_audit(crawl_data, started):
+    from api.models import ResponsiveAudit, ResponsivePageIssue
+    from api.services import playwright_fetcher
+
+    pages = [p for p in (crawl_data.pages or []) if p.responsive is not None]
+    if not pages:
+        return ResponsiveAudit()
+
+    n_no_viewport = sum(1 for p in pages if not p.responsive.hasViewportMeta)
+    n_block_zoom = sum(1 for p in pages if p.responsive.viewportBlocksZoom)
+    n_media = sum(1 for p in pages if p.responsive.cssMediaQueries > 0)
+    total_imgs = sum(p.responsive.imagesTotal for p in pages)
+    srcset_imgs = sum(p.responsive.imagesWithSrcset for p in pages)
+    srcset_ratio = round(srcset_imgs / total_imgs, 3) if total_imgs else 0.0
+
+    page_results: list[ResponsivePageIssue] = []
+    rendered = 0
+    n_hscroll = 0
+    # Pick a sample to actually render: home + a few others.
+    home = crawl_data.url
+    sample = ([p for p in pages if p.url == home] + [p for p in pages if p.url != home])[:5]
+    can_render = playwright_fetcher.is_enabled() and _time.monotonic() - started < AUDIT_HARD_TIMEOUT_S - 120
+    for p in sample:
+        rd = p.responsive.model_dump() if hasattr(p.responsive, "model_dump") else dict(p.responsive)
+        issues = list(rd.get("issues", []))
+        hs375 = hs768 = None
+        overflow375 = small_targets = None
+        if can_render:
+            try:
+                m = _time_boxed_call(lambda url=p.url: playwright_fetcher.measure_responsive(url), 35)
+                if m:
+                    rendered += 1
+                    hs375 = m.get("horizontalScrollAt375")
+                    hs768 = m.get("horizontalScrollAt768")
+                    overflow375 = m.get("overflowingElementsAt375")
+                    small_targets = m.get("smallTouchTargetsAt375")
+                    if hs375:
+                        issues.append("scroll horizontal à 375px (mobile) — un élément déborde")
+                        n_hscroll += 1
+                    elif hs768:
+                        issues.append("scroll horizontal à 768px (tablette)")
+                        n_hscroll += 1
+                    if small_targets:
+                        issues.append(f"{small_targets} cible(s) tactile(s) < 44×44px à 375px")
+            except Exception as e:
+                logger.debug("responsive render failed on %s: %s", p.url, e)
+        page_results.append(ResponsivePageIssue(
+            url=p.url,
+            horizontalScrollAt375=hs375,
+            horizontalScrollAt768=hs768,
+            overflowingElementsAt375=overflow375,
+            smallTouchTargetsAt375=small_targets,
+            issues=issues,
+        ))
+
+    parts = []
+    if n_no_viewport:
+        parts.append(f"{n_no_viewport} page(s) sans <meta viewport>")
+    if n_block_zoom:
+        parts.append(f"{n_block_zoom} page(s) bloquent le zoom")
+    if not can_render:
+        parts.append("rendu navigateur non effectué (Playwright désactivé) — signaux statiques uniquement")
+    elif n_hscroll:
+        parts.append(f"{n_hscroll} page(s) avec scroll horizontal au rendu mobile")
+    summary = " · ".join(parts) if parts else "Aucun problème responsive majeur détecté."
+
+    return ResponsiveAudit(
+        pagesWithoutViewport=n_no_viewport,
+        pagesBlockingZoom=n_block_zoom,
+        pagesWithMediaQueries=n_media,
+        imagesWithSrcsetRatio=srcset_ratio,
+        renderedPagesTested=rendered,
+        pagesWithHorizontalScroll=n_hscroll,
+        pageResults=page_results,
+        summary=summary,
+    )
