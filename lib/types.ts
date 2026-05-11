@@ -73,6 +73,10 @@ export interface PageAnalysis {
   findings: Finding[]
   recommendation?: PageRecommendation
   technical?: PageTechnical
+  /** When this page represents a template group: how many *other* URLs share it. */
+  representsCount?: number
+  representsPattern?: string
+  representsSampleUrls?: string[]
 }
 
 export interface PageRecommendation {

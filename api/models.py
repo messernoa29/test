@@ -190,6 +190,12 @@ class PageAnalysis(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     recommendation: Optional[PageRecommendation] = None
     technical: Optional[PageTechnical] = None
+    # When this page is a representative of a template group (e.g. one of
+    # 200 near-identical blog posts), how many other URLs share its template
+    # and a few example URLs. The analysis applies to all of them.
+    representsCount: int = 0
+    representsPattern: str = ""
+    representsSampleUrls: list[str] = Field(default_factory=list)
 
     @field_validator("title", "h1", "url", mode="before")
     @classmethod

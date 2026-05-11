@@ -75,6 +75,13 @@ def _finding_block(f: Finding) -> list[str]:
 
 def _page_block(p: PageAnalysis) -> list[str]:
     lines: list[str] = [f"### `{p.url}`", ""]
+    if getattr(p, "representsCount", 0):
+        n = p.representsCount + 1
+        pat = f" ({p.representsPattern})" if p.representsPattern else ""
+        lines.append(f"> **Page type** — cette analyse vaut pour {n} pages au même gabarit{pat}.")
+        if p.representsSampleUrls:
+            lines.append(f"> Exemples : {', '.join(p.representsSampleUrls[:4])}")
+        lines.append("")
     status_bits = [f"Statut : **{p.status}**"]
     if p.title:
         status_bits.append(f"Title ({p.titleLength} car.) : {p.title}")

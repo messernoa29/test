@@ -381,8 +381,8 @@ def analyze(
     _sanitize_sections(overview)
     time.sleep(INTER_CALL_DELAY_S)
 
-    selected_count = len(_select_pages_for_detail(crawl))
-    _p(f"Analyse page par page ({selected_count} pages détaillées)…")
+    selected_count = len(_select_pages_for_detail(crawl)[0])
+    _p(f"Analyse page par page ({selected_count} pages représentatives)…")
     pages = _time_boxed(
         lambda: _run_pages_batched(crawl, on_progress=_p), _budget(420), "pages"
     ) or []
@@ -507,29 +507,80 @@ def _run_overview(crawl: CrawlData, crawl_json: str) -> dict:
     return _extract_json(response, tag="OVERVIEW_JSON", context=crawl.domain)
 
 
-def _select_pages_for_detail(crawl: CrawlData) -> list[CrawlPage]:
-    """Pick the pages worth a per-page LLM analysis: home + hubs + a sample,
-    capped at MAX_PAGES_DETAILED. Everything is still covered by the technical
-    crawl / link graph aggregates."""
+# Mapping returned alongside the selected pages: representative URL ->
+# (template pattern, total pages in the group, a few sample URLs).
+GroupInfo = dict
+
+
+def _select_pages_for_detail(crawl: CrawlData) -> tuple[list[CrawlPage], GroupInfo]:
+    """Pick pages worth a per-page LLM analysis.
+
+    Strategy:
+    1. Detect template groups (≥4 URLs at the same path pattern, e.g. 200
+       near-identical blog posts) — analyse ONE representative per group.
+    2. From the remaining "unique" pages, prioritise home + hubs + orphans,
+       then fill up to MAX_PAGES_DETAILED.
+
+    Returns (selected_pages, group_info) where group_info maps the
+    representative's URL to {"pattern", "count", "sampleUrls"}."""
+    from urllib.parse import urlparse as _up
+    from api.services import programmatic_audit as _pa
+
     pages = list(crawl.pages)
-    if len(pages) <= MAX_PAGES_DETAILED:
-        return pages
+    by_path = {(_up(p.url).path or "/"): p for p in pages}
+    pattern_to_paths = _pa._group_by_pattern(list(by_path.keys()))
+
+    grouped_paths: set[str] = set()
+    group_info: GroupInfo = {}
+    representatives: list[CrawlPage] = []
+    for pattern, member_paths in pattern_to_paths.items():
+        members = [by_path[mp] for mp in member_paths if mp in by_path]
+        if len(members) < 4:
+            continue
+        # Representative: prefer one with the most content (likely the richest).
+        rep = max(members, key=lambda p: (p.wordCount or 0, len(p.headings or [])))
+        representatives.append(rep)
+        for m in members:
+            grouped_paths.add(_up(m.url).path or "/")
+        group_info[rep.url] = {
+            "pattern": pattern,
+            "count": len(members),
+            "sampleUrls": [m.url for m in members[:6]],
+        }
+
+    # Unique pages = everything not in a template group.
+    uniques = [p for p in pages if (_up(p.url).path or "/") not in grouped_paths]
     hub_urls = set(crawl.linkGraph.hubPages) if crawl.linkGraph else set()
     orphan_urls = set(crawl.linkGraph.orphanPages) if crawl.linkGraph else set()
     priority = [
-        p for p in pages
+        p for p in uniques
         if p.url == crawl.url or p.url in hub_urls or p.url in orphan_urls
     ]
-    rest = [p for p in pages if p not in priority]
-    return (priority + rest)[:MAX_PAGES_DETAILED]
+    rest = [p for p in uniques if p not in priority]
+
+    # Representatives always make the cut; then priority uniques; then the rest.
+    selected = representatives + priority + rest
+    selected = selected[:max(MAX_PAGES_DETAILED, len(representatives))]
+    # Keep group_info only for representatives that survived the cut.
+    sel_urls = {p.url for p in selected}
+    group_info = {u: v for u, v in group_info.items() if u in sel_urls}
+    return selected, group_info
 
 
 def _run_pages_batched(
     crawl: CrawlData, *, on_progress: Optional[Callable[[str], None]] = None
 ) -> list[dict]:
-    """Analyse pages in fixed-size batches so no single response overruns."""
+    """Analyse pages in fixed-size batches so no single response overruns.
+    Template groups (e.g. 200 near-identical blog posts) are represented by a
+    single page; its analysis is tagged with how many it stands for."""
     _p = on_progress or (lambda _m: None)
-    selected = _select_pages_for_detail(crawl)
+    selected, group_info = _select_pages_for_detail(crawl)
+    if group_info:
+        total_grouped = sum(g["count"] for g in group_info.values())
+        _p(
+            f"{len(group_info)} groupe(s) de pages au même template détecté(s) — "
+            f"1 page type analysée pour {total_grouped} pages"
+        )
     batches = _chunk(selected, PAGE_BATCH_SIZE)
     all_pages: list[dict] = []
 
@@ -572,6 +623,32 @@ def _run_pages_batched(
         all_pages.extend(batch_pages)
         if i < len(batches):
             time.sleep(INTER_CALL_DELAY_S)
+
+    # Tag the representative pages with the size of the template group they
+    # stand for, so the report can say "1 page type — vaut pour 198 autres".
+    if group_info:
+        for pa in all_pages:
+            if not isinstance(pa, dict):
+                continue
+            gi = group_info.get(pa.get("url"))
+            if gi:
+                pa["representsCount"] = max(0, int(gi.get("count", 0)) - 1)
+                pa["representsPattern"] = str(gi.get("pattern", ""))
+                pa["representsSampleUrls"] = list(gi.get("sampleUrls", []))[:6]
+                # Make it obvious in the page's own findings too.
+                msg = (
+                    f"Cette page est représentative d'un groupe de {gi.get('count')} "
+                    f"pages au même gabarit ({gi.get('pattern')}). Les remarques "
+                    "ci-dessous s'appliquent à l'ensemble du groupe."
+                )
+                fnds = pa.get("findings")
+                if isinstance(fnds, list):
+                    fnds.insert(0, {
+                        "severity": "info",
+                        "title": f"Page type — vaut pour {gi.get('count')} pages",
+                        "description": msg,
+                        "actions": [],
+                    })
 
     return all_pages
 

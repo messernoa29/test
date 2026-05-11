@@ -20,6 +20,20 @@ export function PageSheet({ page }: PageSheetProps) {
         <Badge kind={page.status}>{PAGE_STATUS_LABEL[page.status]}</Badge>
       </header>
 
+      {page.representsCount && page.representsCount > 0 ? (
+        <div className="px-5 py-2.5 bg-[var(--status-info-bg)] border-b border-[var(--status-info-border)] text-xs text-[var(--status-info-text)]">
+          <strong>Page type</strong> — cette analyse vaut pour {page.representsCount + 1}{' '}
+          pages au même gabarit
+          {page.representsPattern ? ` (${page.representsPattern})` : ''}
+          {page.representsSampleUrls && page.representsSampleUrls.length > 1 ? (
+            <span className="block mt-1 font-mono text-[10px] text-text-tertiary break-all">
+              ex. : {page.representsSampleUrls.slice(0, 3).join(' · ')}
+              {page.representsSampleUrls.length > 3 ? ' …' : ''}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="px-5 py-4 space-y-5">
         <MetaGrid page={page} />
         {page.technical && <TechnicalBlock t={page.technical} />}
