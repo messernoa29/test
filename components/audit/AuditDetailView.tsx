@@ -96,7 +96,12 @@ export function AuditDetailView({ audit }: Props) {
           active === s.section ? <AxisTab key={s.section} section={s} /> : null,
         )}
         {active === 'pages' && <PagesTab pages={audit.pages ?? []} />}
-        {active === 'crawl' && <TechnicalCrawlTab data={audit.technicalCrawl} />}
+        {active === 'crawl' && (
+          <TechnicalCrawlTab
+            data={audit.technicalCrawl}
+            cultural={audit.culturalAudit}
+          />
+        )}
         {active === 'visibility' && (
           <VisibilityTab data={audit.visibilityEstimate} />
         )}

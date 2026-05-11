@@ -1,15 +1,20 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { TechnicalCrawlSummary, TechnicalPageRow } from '@/lib/types'
+import type {
+  CulturalAuditSummary,
+  TechnicalCrawlSummary,
+  TechnicalPageRow,
+} from '@/lib/types'
 
 interface Props {
   data?: TechnicalCrawlSummary
+  cultural?: CulturalAuditSummary
 }
 
 type StatusFilter = 'all' | '2xx' | '3xx' | '4xx' | '5xx' | 'issues'
 
-export function TechnicalCrawlTab({ data }: Props) {
+export function TechnicalCrawlTab({ data, cultural }: Props) {
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
@@ -155,7 +160,75 @@ export function TechnicalCrawlTab({ data }: Props) {
           </table>
         </div>
       </div>
+
+      {/* Cultural adaptation (multilingual sites) */}
+      {cultural?.isMultilingual && (
+        <CulturalSection cultural={cultural} />
+      )}
     </div>
+  )
+}
+
+function CulturalSection({ cultural }: { cultural: CulturalAuditSummary }) {
+  return (
+    <section>
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
+        Adaptation culturelle (site multilingue)
+      </h3>
+      <p className="text-xs text-text-tertiary mb-3">
+        Langues détectées : {cultural.detectedLocales.join(', ')}. On vérifie
+        que les formats de date/nombre/devise et les CTA correspondent à chaque
+        audience.
+      </p>
+      <div className="space-y-3">
+        {cultural.locales.map((loc) => (
+          <div
+            key={loc.locale}
+            className="border border-[var(--border-subtle)] rounded-md bg-bg-surface p-3"
+          >
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-sm font-medium text-text-primary">
+                {loc.label} <span className="text-text-tertiary">({loc.locale})</span>
+              </span>
+              <span
+                className={`text-xs ${loc.pagesWithIssues > 0 ? 'text-[var(--status-warning-text)]' : 'text-[var(--status-ok-text)]'}`}
+              >
+                {loc.pagesWithIssues} / {loc.pagesCount} pages avec écart
+              </span>
+            </div>
+            <div className="text-[11px] text-text-tertiary mb-2">
+              Format nombre attendu : {loc.expectedNumberFormat} · Date :{' '}
+              {loc.expectedDateFormat}
+            </div>
+            {loc.issueExamples.length === 0 ? (
+              <p className="text-[11px] text-[var(--status-ok-text)]">
+                Aucun écart détecté.
+              </p>
+            ) : (
+              <ul className="space-y-1.5 text-[11px]">
+                {loc.issueExamples.map((pi, i) => (
+                  <li key={i}>
+                    <a
+                      href={pi.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-text-secondary hover:text-primary break-all"
+                    >
+                      {pi.url}
+                    </a>
+                    <ul className="ml-3 mt-0.5 space-y-0.5 text-text-secondary">
+                      {pi.issues.map((iss, j) => (
+                        <li key={j}>· {iss}</li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

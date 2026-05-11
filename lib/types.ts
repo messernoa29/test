@@ -197,6 +197,29 @@ export interface AuditResult {
   missingPages?: MissingPage[]
   technicalCrawl?: TechnicalCrawlSummary
   visibilityEstimate?: VisibilityEstimate
+  culturalAudit?: CulturalAuditSummary
+}
+
+export interface CulturalPageIssue {
+  url: string
+  locale: string
+  issues: string[]
+}
+
+export interface CulturalLocaleReport {
+  locale: string
+  label: string
+  pagesCount: number
+  pagesWithIssues: number
+  expectedNumberFormat: string
+  expectedDateFormat: string
+  issueExamples: CulturalPageIssue[]
+}
+
+export interface CulturalAuditSummary {
+  isMultilingual: boolean
+  detectedLocales: string[]
+  locales: CulturalLocaleReport[]
 }
 
 export interface EstimatedKeyword {

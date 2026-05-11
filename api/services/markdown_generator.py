@@ -200,6 +200,29 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
         for p in audit.pages:
             L.extend(_page_block(p))
 
+    # Cultural adaptation (multilingual)
+    ca = audit.culturalAudit
+    if ca is not None and ca.isMultilingual:
+        L.append("## Adaptation culturelle (site multilingue)")
+        L.append("")
+        L.append(f"Langues détectées : {', '.join(ca.detectedLocales)}")
+        L.append("")
+        for loc in ca.locales:
+            L.append(
+                f"### {loc.label} ({loc.locale}) — {loc.pagesWithIssues}/{loc.pagesCount} pages avec écart"
+            )
+            L.append(
+                f"- Format nombre attendu : {loc.expectedNumberFormat} · Date : {loc.expectedDateFormat}"
+            )
+            if loc.issueExamples:
+                for pi in loc.issueExamples:
+                    L.append(f"- `{pi.url}`")
+                    for iss in pi.issues:
+                        L.append(f"  - [ ] {iss}")
+            else:
+                L.append("- Aucun écart détecté.")
+            L.append("")
+
     # Visibility estimate (SEMrush-style, LLM-estimated)
     v = audit.visibilityEstimate
     if v is not None:

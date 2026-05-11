@@ -515,6 +515,7 @@ def _fetch_page(
     open_graph = _extract_open_graph(soup)
     external_links_count = _count_external_links(soup, url, origin)
     has_mixed_content = _detect_mixed_content(soup, url)
+    cta_texts = _extract_cta_texts(soup)
 
     page = CrawlPage(
         url=url,
@@ -542,6 +543,7 @@ def _fetch_page(
         htmlBytes=result.html_bytes,
         externalLinksCount=external_links_count,
         hasMixedContent=has_mixed_content,
+        ctaTexts=cta_texts,
     )
     return page, result
 
@@ -604,6 +606,29 @@ def _detect_mixed_content(soup: BeautifulSoup, page_url: str) -> bool:
             if isinstance(val, str) and val.strip().lower().startswith("http://"):
                 return True
     return False
+
+
+_CTA_TAG_HINT = re.compile(r"(button|btn|cta|call-to-action)", re.I)
+
+
+def _extract_cta_texts(soup: BeautifulSoup) -> list[str]:
+    """Anchor/button texts that look like CTAs (short, button-styled)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for tag in soup.find_all(["a", "button"]):
+        cls = " ".join(tag.get("class") or [])
+        role = tag.get("role") or ""
+        if tag.name == "button" or _CTA_TAG_HINT.search(cls) or role == "button":
+            try:
+                txt = tag.get_text(" ", strip=True)
+            except Exception:
+                continue
+            if 2 < len(txt) < 40 and txt.lower() not in seen:
+                seen.add(txt.lower())
+                out.append(txt)
+        if len(out) >= 30:
+            break
+    return out
 
 
 def _extract_canonical(soup: BeautifulSoup, page_url: str) -> Optional[str]:

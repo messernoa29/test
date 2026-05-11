@@ -103,11 +103,13 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
 
         audit = analyzer.analyze(crawl_data)
         enriched_pages = _merge_page_technical(audit.pages, crawl_data)
+        cultural = _build_cultural_audit(crawl_data)
         audit = audit.model_copy(
             update={
                 "id": job_id,
                 "technicalCrawl": crawl_data.technicalCrawl,
                 "pages": enriched_pages,
+                "culturalAudit": cultural,
             }
         )
         if audit.domain:
@@ -454,3 +456,86 @@ def _merge_page_technical(pages, crawl_data):
         )
         out.append(pa.model_copy(update={"technical": tech}))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Cultural adaptation audit (multilingual sites)
+
+
+def _build_cultural_audit(crawl_data):
+    """Detect multilingual sites and run a per-locale cultural-mismatch check.
+    Returns CulturalAuditSummary (isMultilingual False when monolingual)."""
+    from api.models import (
+        CulturalAuditSummary,
+        CulturalLocaleReport,
+        CulturalPageIssue,
+    )
+    from api.services import cultural_audit
+
+    pages = crawl_data.pages or []
+    if not pages:
+        return CulturalAuditSummary()
+
+    # Map each page to a detected locale.
+    by_locale: dict[str, list] = {}
+    for p in pages:
+        hreflang_self = ""
+        # If the page declares an alternate to itself, treat that lang as self.
+        for h in (p.hreflang or []):
+            try:
+                if h.href.rstrip("/") == p.url.rstrip("/"):
+                    hreflang_self = h.lang
+                    break
+            except Exception:
+                pass
+        loc = cultural_audit.detect_page_locale(
+            html_lang=p.htmlLang or "",
+            hreflang_self=hreflang_self,
+            url=p.url,
+        )
+        if loc:
+            by_locale.setdefault(loc, []).append(p)
+
+    # Also collect locales declared via hreflang anywhere on the site.
+    declared = set(by_locale.keys())
+    for p in pages:
+        for h in (p.hreflang or []):
+            n = cultural_audit._norm_lang(h.lang)
+            if n in cultural_audit.PROFILES:
+                declared.add(n)
+
+    if len(declared) < 2:
+        return CulturalAuditSummary(isMultilingual=False, detectedLocales=sorted(declared))
+
+    reports: list[CulturalLocaleReport] = []
+    for loc in sorted(by_locale.keys()):
+        prof = cultural_audit.PROFILES.get(loc)
+        if not prof:
+            continue
+        plist = by_locale[loc]
+        page_issues: list[CulturalPageIssue] = []
+        for p in plist:
+            issues = cultural_audit.audit_page(
+                locale=loc,
+                body_text=p.textSnippet or "",
+                cta_texts=p.ctaTexts or [],
+            )
+            if issues:
+                page_issues.append(
+                    CulturalPageIssue(url=p.url, locale=loc, issues=issues)
+                )
+        reports.append(CulturalLocaleReport(
+            locale=loc,
+            label=prof["label"],
+            pagesCount=len(plist),
+            pagesWithIssues=len(page_issues),
+            expectedNumberFormat=prof["numberFormat"],
+            expectedDateFormat=prof["dateFormat"],
+            issueExamples=page_issues[:15],
+        ))
+
+    return CulturalAuditSummary(
+        isMultilingual=True,
+        detectedLocales=sorted(declared),
+        locales=reports,
+    )

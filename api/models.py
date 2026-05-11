@@ -377,6 +377,8 @@ class CrawlPage(BaseModel):
     externalLinksCount: int = 0
     # True if the page declares mixed content (http:// asset on https:// page).
     hasMixedContent: bool = False
+    # CTA-looking anchor/button texts (for cultural-adaptation audit).
+    ctaTexts: list[str] = Field(default_factory=list)
 
 
 class LinkGraphPageStat(BaseModel):
@@ -494,6 +496,31 @@ class VisibilityEstimate(BaseModel):
     summary: str = ""
 
 
+class CulturalPageIssue(BaseModel):
+    url: str
+    locale: str
+    issues: list[str] = Field(default_factory=list)
+
+
+class CulturalLocaleReport(BaseModel):
+    locale: str  # "fr" | "de" | ...
+    label: str  # "Francophone" | ...
+    pagesCount: int = 0
+    pagesWithIssues: int = 0
+    expectedNumberFormat: str = ""
+    expectedDateFormat: str = ""
+    issueExamples: list[CulturalPageIssue] = Field(default_factory=list)
+
+
+class CulturalAuditSummary(BaseModel):
+    """Cultural adaptation audit for multilingual sites. Empty/absent when the
+    site appears monolingual."""
+
+    isMultilingual: bool = False
+    detectedLocales: list[str] = Field(default_factory=list)
+    locales: list[CulturalLocaleReport] = Field(default_factory=list)
+
+
 class AuditResult(BaseModel):
     id: str
     domain: str
@@ -514,6 +541,8 @@ class AuditResult(BaseModel):
     # SEMrush-style organic visibility estimate (LLM + web_search, clearly
     # labelled as an estimate — NOT clickstream data).
     visibilityEstimate: Optional[VisibilityEstimate] = None
+    # Cultural adaptation audit for multilingual sites (populated by the runner).
+    culturalAudit: Optional[CulturalAuditSummary] = None
 
     @field_validator("globalScore", mode="before")
     @classmethod
