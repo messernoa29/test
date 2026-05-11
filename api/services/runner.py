@@ -45,9 +45,49 @@ def _get_executor() -> ThreadPoolExecutor:
         return _executor
 
 
+# Hard ceiling on a single audit. Past this, mark it failed and free the job
+# (the worker thread is left to finish on its own — it can't be killed — but
+# the job no longer sits in "pending" forever).
+AUDIT_HARD_TIMEOUT_S = 15 * 60
+
+
 def submit_audit(job_id: str, url: str, max_pages: int = 50) -> None:
-    """Queue a pipeline run; updates the store as it progresses."""
-    _get_executor().submit(_run, job_id, url, max_pages)
+    """Queue a pipeline run with a hard timeout watchdog."""
+    _get_executor().submit(_run_watchdogged, job_id, url, max_pages)
+
+
+def _run_watchdogged(job_id: str, url: str, max_pages: int) -> None:
+    """Run _run in a nested thread; if it overruns AUDIT_HARD_TIMEOUT_S,
+    mark the job failed so it doesn't hang in 'pending'. The inner thread is
+    left to finish on its own (Python can't kill threads) — but the job is
+    freed and the user sees a clear error."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    from concurrent.futures import TimeoutError as _FTimeout
+
+    inner = _TPE(max_workers=1, thread_name_prefix="audit-inner")
+    fut = inner.submit(_run, job_id, url, max_pages)
+    inner.shutdown(wait=False)  # don't block this thread on the inner one
+    try:
+        fut.result(timeout=AUDIT_HARD_TIMEOUT_S)
+    except _FTimeout:
+        logger.warning("Audit %s exceeded %ss — marking failed", job_id, AUDIT_HARD_TIMEOUT_S)
+        try:
+            from api.services import progress
+            progress.add(job_id, f"Délai dépassé ({AUDIT_HARD_TIMEOUT_S // 60} min) — audit abandonné")
+            store = get_store()
+            job = store.get(job_id)
+            if job is not None and job.status == "pending":
+                store.fail_job(
+                    job_id,
+                    f"L'audit a dépassé le délai maximum de {AUDIT_HARD_TIMEOUT_S // 60} minutes. "
+                    "Réessayez avec moins de pages, ou vérifiez les quotas de l'API Gemini.",
+                )
+        except Exception as e:
+            logger.warning("Failed to mark timed-out audit %s: %s", job_id, e)
+    except Exception:
+        # _run already records its own failure; nothing to do here.
+        pass
 
 
 def shutdown_executor(wait: bool = False) -> None:
