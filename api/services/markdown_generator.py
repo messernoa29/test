@@ -159,6 +159,21 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
     L.append(f"- **Date** : {audit.createdAt[:10]}")
     L.append(f"- **Score global** : {audit.globalScore}/100 — {audit.globalVerdict}")
     L.append(f"- **Points critiques** : {audit.criticalCount} · **À corriger** : {audit.warningCount}")
+    cov = audit.crawlCoverage
+    if cov is not None and cov.requestedMaxPages:
+        suffix = (
+            " — limite atteinte, relancez avec une profondeur supérieure pour tout couvrir"
+            if cov.cappedByLimit
+            else " — couverture complète" if cov.cappedBySite else ""
+        )
+        extra = (
+            f" sur {cov.discoveredUrlCount} URLs trouvées"
+            if cov.discoveredUrlCount > cov.crawledPageCount else ""
+        )
+        L.append(
+            f"- **Couverture du crawl** : {cov.crawledPageCount} pages analysées{extra} "
+            f"(profondeur demandée : {cov.requestedMaxPages}){suffix}"
+        )
     L.append("")
 
     # Scores table

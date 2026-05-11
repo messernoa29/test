@@ -136,7 +136,7 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
     # the thread dies from something unexpected (OSError, MemoryError, ...).
     success = False
     try:
-        progress.add(job_id, "Crawl du site en cours…")
+        progress.add(job_id, f"Crawl du site en cours (jusqu'à {max_pages} pages)…")
         crawl_data = crawler.crawl(url, max_pages=max_pages)
         if not crawl_data.pages:
             progress.add(job_id, "Aucune page récupérée — échec.")
@@ -144,7 +144,22 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
                 job_id, "Le site n'a pas répondu ou aucune page n'a été trouvée."
             )
             return
-        progress.add(job_id, f"Crawl terminé : {len(crawl_data.pages)} pages analysées")
+        n_crawled = len(crawl_data.pages)
+        n_discovered = crawl_data.discoveredUrlCount or n_crawled
+        if n_discovered > n_crawled:
+            progress.add(
+                job_id,
+                f"Crawl terminé : {n_crawled} pages analysées sur {n_discovered} "
+                f"URLs trouvées (limite : {max_pages})",
+            )
+        else:
+            progress.add(
+                job_id,
+                f"Crawl terminé : {n_crawled} pages analysées "
+                f"(le site n'en a pas plus ; vous aviez demandé jusqu'à {max_pages})"
+                if n_crawled < max_pages
+                else f"Crawl terminé : {n_crawled} pages analysées",
+            )
         _check_deadline("PageSpeed")
 
         # Enrich with real Core Web Vitals before analysis. Falls back to
@@ -192,6 +207,7 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
         cultural = _build_cultural_audit(crawl_data)
         geo = _build_geo_audit(crawl_data)
         programmatic = _build_programmatic_audit(crawl_data)
+        coverage = _build_crawl_coverage(crawl_data)
         audit = audit.model_copy(
             update={
                 "id": job_id,
@@ -200,6 +216,7 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
                 "culturalAudit": cultural,
                 "geoAudit": geo,
                 "programmaticAudit": programmatic,
+                "crawlCoverage": coverage,
             }
         )
         if audit.domain:
@@ -700,4 +717,25 @@ def _build_programmatic_audit(crawl_data):
     return ProgrammaticAuditSummary(
         isProgrammatic=result.get("isProgrammatic", False),
         groups=groups,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Crawl coverage summary
+
+
+def _build_crawl_coverage(crawl_data):
+    from api.models import CrawlCoverage
+
+    requested = crawl_data.requestedMaxPages or 0
+    discovered = crawl_data.discoveredUrlCount or len(crawl_data.pages or [])
+    crawled = crawl_data.crawledPageCount or len(crawl_data.pages or [])
+    capped_by_limit = requested > 0 and discovered > requested
+    capped_by_site = requested > 0 and discovered <= requested
+    return CrawlCoverage(
+        requestedMaxPages=requested,
+        discoveredUrlCount=discovered,
+        crawledPageCount=crawled,
+        cappedByLimit=capped_by_limit,
+        cappedBySite=capped_by_site,
     )

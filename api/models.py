@@ -464,6 +464,11 @@ class CrawlData(BaseModel):
     robotsTxt: str = ""
     # Whether /llms.txt exists.
     hasLlmsTxt: bool = False
+    # Crawl coverage: how many pages the user asked for, how many distinct URLs
+    # were discovered (sitemap + links), and how many were actually fetched OK.
+    requestedMaxPages: int = 0
+    discoveredUrlCount: int = 0
+    crawledPageCount: int = 0
 
 
 class EstimatedKeyword(BaseModel):
@@ -584,6 +589,16 @@ class CulturalAuditSummary(BaseModel):
     locales: list[CulturalLocaleReport] = Field(default_factory=list)
 
 
+class CrawlCoverage(BaseModel):
+    """How much of the site the crawl actually covered, vs what was asked."""
+
+    requestedMaxPages: int = 0   # depth the user picked (50 / 150 / 300)
+    discoveredUrlCount: int = 0  # distinct same-origin URLs found
+    crawledPageCount: int = 0    # pages fetched & analysed (≤ requestedMaxPages)
+    cappedByLimit: bool = False  # True if discovery hit the page limit
+    cappedBySite: bool = False   # True if the site simply has fewer pages
+
+
 class AuditResult(BaseModel):
     id: str
     domain: str
@@ -612,6 +627,8 @@ class AuditResult(BaseModel):
     programmaticAudit: Optional[ProgrammaticAuditSummary] = None
     # SXO page-type-vs-SERP-intent mismatch (LLM + web_search, sampled).
     sxoAudit: Optional[SxoAuditSummary] = None
+    # How many pages the crawl actually covered vs the requested depth.
+    crawlCoverage: Optional[CrawlCoverage] = None
 
     @field_validator("globalScore", mode="before")
     @classmethod

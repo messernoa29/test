@@ -15,8 +15,31 @@ export function OverviewTab({
   const wins = (audit.quickWins ?? []).filter(
     (w): w is string => typeof w === 'string' && w.trim().length > 0,
   )
+  const cov = audit.crawlCoverage
   return (
     <div className="space-y-10">
+      {cov && cov.requestedMaxPages > 0 && (
+        <div
+          className={`px-4 py-2.5 rounded-md border text-xs ${
+            cov.cappedByLimit
+              ? 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning-text)]'
+              : 'border-[var(--border-subtle)] bg-bg-surface text-text-secondary'
+          }`}
+        >
+          <strong>Couverture du crawl :</strong>{' '}
+          {cov.crawledPageCount} page{cov.crawledPageCount > 1 ? 's' : ''} analysée
+          {cov.crawledPageCount > 1 ? 's' : ''}
+          {cov.discoveredUrlCount > cov.crawledPageCount
+            ? ` sur ${cov.discoveredUrlCount} URLs trouvées`
+            : ''}
+          {' · '}profondeur demandée : {cov.requestedMaxPages} pages.
+          {cov.cappedByLimit
+            ? ` Le site a plus de pages que la limite — relancez avec une profondeur supérieure pour tout couvrir.`
+            : cov.cappedBySite
+              ? ` Le site n'a pas plus de pages : couverture complète.`
+              : ''}
+        </div>
+      )}
       <section className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4 items-start">
         <div className="bg-bg-surface border border-[var(--border-subtle)] rounded-md p-5">
           <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary mb-3">

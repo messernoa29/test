@@ -201,6 +201,15 @@ export interface AuditResult {
   geoAudit?: GeoAuditSummary
   programmaticAudit?: ProgrammaticAuditSummary
   sxoAudit?: SxoAuditSummary
+  crawlCoverage?: CrawlCoverage
+}
+
+export interface CrawlCoverage {
+  requestedMaxPages: number
+  discoveredUrlCount: number
+  crawledPageCount: number
+  cappedByLimit: boolean
+  cappedBySite: boolean
 }
 
 export interface SxoPageVerdict {

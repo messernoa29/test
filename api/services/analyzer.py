@@ -394,25 +394,30 @@ def analyze(
     missing = _time_boxed(lambda: _run_missing(crawl), _budget(120), "missing") or []
     _sanitize_missing(missing)
 
-    # Optional web_search passes — best-effort, time-boxed against the remaining
-    # budget. If the audit is already near its deadline, skip them entirely.
+    # Optional web_search passes — best-effort. We give each a guaranteed small
+    # window (≥45s) regardless of how much core-pass budget was eaten by rate
+    # limits, so they're not silently skipped on every free-tier run; they're
+    # only dropped when the deadline is essentially here (<10s left).
     time.sleep(INTER_CALL_DELAY_S)
-    if _budget(0.0) > 20:
+    OPT_MIN_S, OPT_MAX_S = 60.0, 130.0
+    if _budget(0.0) > 10:
         _p("Estimation de visibilité organique (recherche web)…")
-        visibility = _time_boxed(lambda: _run_visibility_estimate(crawl, pages), _budget(90), "visibility")
+        vbudget = max(OPT_MIN_S, min(OPT_MAX_S, _budget(OPT_MAX_S)))
+        visibility = _time_boxed(lambda: _run_visibility_estimate(crawl, pages), vbudget, "visibility")
         if visibility is None:
             _p("Estimation de visibilité ignorée (délai/erreur)")
     else:
         visibility = None
-        _p("Estimation de visibilité ignorée (budget temps épuisé)")
-    if _budget(0.0) > 20:
+        _p("Estimation de visibilité ignorée (délai global atteint)")
+    if _budget(0.0) > 10:
         _p("Analyse SXO (type de page vs SERP)…")
-        sxo = _time_boxed(lambda: _run_sxo(crawl, pages), _budget(90), "sxo")
+        sbudget = max(OPT_MIN_S, min(OPT_MAX_S, _budget(OPT_MAX_S)))
+        sxo = _time_boxed(lambda: _run_sxo(crawl, pages), sbudget, "sxo")
         if sxo is None:
             _p("Analyse SXO ignorée (délai/erreur)")
     else:
         sxo = None
-        _p("Analyse SXO ignorée (budget temps épuisé)")
+        _p("Analyse SXO ignorée (délai global atteint)")
 
     _log_coverage(crawl, pages)
 

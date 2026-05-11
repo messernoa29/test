@@ -92,7 +92,8 @@ def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
         robots_txt = _fetch_robots_txt(client, origin)
         has_llms_txt = _probe_llms_txt(client, origin)
         discovered = _discover_urls(client, origin, base, cap=max(max_pages * 2, MAX_DISCOVERY_LINKS))
-        logger.info("Discovered %d candidate URLs for %s", len(discovered), origin)
+        discovered_count = len(discovered)
+        logger.info("Discovered %d candidate URLs for %s", discovered_count, origin)
 
         targets = discovered[:max_pages]
         pages, fetched = _fetch_pages_parallel(client, targets, origin)
@@ -121,6 +122,9 @@ def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
         technicalCrawl=technical,
         robotsTxt=robots_txt,
         hasLlmsTxt=has_llms_txt,
+        requestedMaxPages=max_pages,
+        discoveredUrlCount=discovered_count,
+        crawledPageCount=len(pages),
     )
 
 
