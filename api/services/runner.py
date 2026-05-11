@@ -102,7 +102,9 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
         )
 
         audit = analyzer.analyze(crawl_data)
-        audit = audit.model_copy(update={"id": job_id})
+        audit = audit.model_copy(
+            update={"id": job_id, "technicalCrawl": crawl_data.technicalCrawl}
+        )
         if audit.domain:
             store.update_domain(job_id, audit.domain)
         store.complete_job(job_id, audit, crawl_data)

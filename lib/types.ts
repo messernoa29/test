@@ -165,6 +165,51 @@ export interface AuditResult {
   quickWins: string[]
   pages?: PageAnalysis[]
   missingPages?: MissingPage[]
+  technicalCrawl?: TechnicalCrawlSummary
+}
+
+export interface TechnicalPageRow {
+  url: string
+  statusCode: number | null
+  contentType: string
+  isIndexable: boolean
+  indexabilityReason: string
+  depth: number | null
+  htmlBytes: number
+  textBytes: number
+  textRatio: number
+  titleLength: number
+  metaDescLength: number
+  h1Count: number
+  h2Count: number
+  wordCount: number
+  internalLinksOut: number
+  externalLinksOut: number
+  imagesCount: number
+  imagesWithoutAlt: number
+  issues: string[]
+}
+
+export interface TechnicalCrawlSummary {
+  pagesCrawled: number
+  statusCounts: Record<string, number>
+  indexablePages: number
+  nonIndexablePages: number
+  duplicateTitles: string[][]
+  duplicateMetaDescriptions: string[][]
+  duplicateH1s: string[][]
+  missingTitles: string[]
+  missingMetaDescriptions: string[]
+  missingH1: string[]
+  multipleH1: string[]
+  titleTooLong: string[]
+  titleTooShort: string[]
+  metaTooLong: string[]
+  metaTooShort: string[]
+  lowTextRatioPages: string[]
+  brokenInternalLinks: string[]
+  maxDepth: number
+  rows: TechnicalPageRow[]
 }
 
 export interface AuditRequest {

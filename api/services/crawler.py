@@ -93,11 +93,13 @@ def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
         logger.info("Discovered %d candidate URLs for %s", len(discovered), origin)
 
         targets = discovered[:max_pages]
-        pages = _fetch_pages_parallel(client, targets, origin)
+        pages, fetched = _fetch_pages_parallel(client, targets, origin)
 
         link_graph = _build_link_graph(client, pages)
         duplicates = _compute_duplicates(pages)
         redirect_chains = _collect_redirect_chains(pages)
+        depths = _compute_depths(base, pages)
+        technical = _build_technical_crawl(pages, fetched, depths, origin)
     finally:
         client.close()
 
@@ -114,7 +116,42 @@ def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
         linkGraph=link_graph,
         duplicates=duplicates,
         redirectChains=redirect_chains,
+        technicalCrawl=technical,
     )
+
+
+def _compute_depths(entry_url: str, pages: list[CrawlPage]) -> dict[str, int]:
+    """BFS click-depth from the entry URL over the crawled internal-link graph.
+
+    Pages not reachable from entry via crawled links get the max depth + 1
+    (effectively "orphan / deep")."""
+    norm_entry = _normalize(entry_url)
+    by_url = {_normalize(p.url): p for p in pages}
+    adj: dict[str, list[str]] = {}
+    for p in pages:
+        src = _normalize(p.url)
+        adj[src] = [
+            _normalize(l.target) for l in p.internalLinks
+            if _normalize(l.target) in by_url
+        ]
+    depth: dict[str, int] = {}
+    if norm_entry in by_url:
+        depth[norm_entry] = 0
+        queue: deque[str] = deque([norm_entry])
+        while queue:
+            cur = queue.popleft()
+            for nxt in adj.get(cur, []):
+                if nxt not in depth:
+                    depth[nxt] = depth[cur] + 1
+                    queue.append(nxt)
+    # Unreached pages
+    if depth:
+        deep = max(depth.values()) + 1
+    else:
+        deep = 0
+    for u in by_url:
+        depth.setdefault(u, deep)
+    return depth
 
 
 # ---------------------------------------------------------------------------
@@ -253,39 +290,70 @@ def _walk_links_bfs(
 
 def _fetch_html(client: httpx.Client, url: str) -> Optional[str]:
     result = _fetch_html_with_meta(client, url)
-    return result[0] if result else None
+    return result.html if result else None
 
 
-def _fetch_html_with_meta(
-    client: httpx.Client, url: str
-) -> Optional[tuple[str, str, list[str]]]:
-    """Return (html, finalUrl, redirectHops) or None on failure.
+class _FetchResult:
+    """Outcome of fetching one URL — kept even on non-200 so the technical
+    crawl can record status codes / sizes for every visited URL."""
 
-    redirectHops is the list of intermediate URLs visited (Location headers),
-    not including the final URL.
-    """
+    __slots__ = (
+        "html", "final_url", "hops", "status_code", "content_type", "html_bytes"
+    )
+
+    def __init__(self, *, html, final_url, hops, status_code, content_type, html_bytes):
+        self.html: Optional[str] = html
+        self.final_url: str = final_url
+        self.hops: list[str] = hops
+        self.status_code: Optional[int] = status_code
+        self.content_type: str = content_type
+        self.html_bytes: int = html_bytes
+
+
+def _fetch_html_with_meta(client: httpx.Client, url: str) -> Optional[_FetchResult]:
+    """Fetch a URL. Returns a _FetchResult with html=None on non-HTML / non-200
+    but a populated status_code; returns None only on hard network failure."""
     try:
         resp = client.get(url)
     except httpx.TooManyRedirects:
         logger.warning("Redirect loop on %s — skipped", url)
-        return None
+        return _FetchResult(
+            html=None, final_url=url, hops=[], status_code=None,
+            content_type="", html_bytes=0,
+        )
     except httpx.HTTPError as e:
         logger.debug("Fetch error on %s: %s", url, e)
-        return None
+        return _FetchResult(
+            html=None, final_url=url, hops=[], status_code=None,
+            content_type="", html_bytes=0,
+        )
 
-    if resp.status_code == 403:
-        logger.warning("403 Forbidden on %s (bot detection?)", url)
-        return None
-    if resp.status_code == 429:
-        logger.warning("429 Too Many Requests on %s — skipped", url)
-        return None
-    if resp.status_code != 200:
-        if 400 <= resp.status_code < 600:
-            logger.debug("HTTP %d on %s — skipped", resp.status_code, url)
-        return None
+    final_url = str(resp.url)
+    hops: list[str] = []
+    for prev in resp.history:
+        try:
+            hops.append(str(prev.url))
+        except Exception:
+            continue
     content_type = resp.headers.get("content-type", "").lower()
+    html_bytes = len(resp.content or b"")
+
+    if resp.status_code != 200:
+        if resp.status_code == 403:
+            logger.warning("403 Forbidden on %s (bot detection?)", url)
+        elif resp.status_code == 429:
+            logger.warning("429 Too Many Requests on %s — skipped", url)
+        return _FetchResult(
+            html=None, final_url=final_url, hops=hops,
+            status_code=resp.status_code, content_type=content_type,
+            html_bytes=html_bytes,
+        )
     if "text/html" not in content_type and "xhtml" not in content_type:
-        return None
+        return _FetchResult(
+            html=None, final_url=final_url, hops=hops,
+            status_code=resp.status_code, content_type=content_type,
+            html_bytes=html_bytes,
+        )
 
     try:
         text = resp.text
@@ -298,14 +366,11 @@ def _fetch_html_with_meta(
         except Exception:
             text = resp.content.decode("utf-8", errors="replace")
 
-    final_url = str(resp.url)
-    hops: list[str] = []
-    for prev in resp.history:
-        try:
-            hops.append(str(prev.url))
-        except Exception:
-            continue
-    return text, final_url, hops
+    return _FetchResult(
+        html=text, final_url=final_url, hops=hops,
+        status_code=resp.status_code, content_type=content_type,
+        html_bytes=html_bytes,
+    )
 
 
 def _guess_encoding(raw: bytes) -> str:
@@ -335,16 +400,14 @@ def _parse_html(html: str):
 
 def _fetch_pages_parallel(
     client: httpx.Client, targets: list[str], origin: str
-) -> list[CrawlPage]:
-    """Fetch all target URLs in parallel and preserve discovery order in output.
-
-    httpx.Client is thread-safe for sending requests. Playwright fallbacks are
-    serialized via a lock inside the fetcher to avoid concurrent Chromium
-    launches.
-    """
+) -> tuple[list[CrawlPage], dict[str, "_FetchResult"]]:
+    """Fetch all target URLs in parallel. Returns (analysable CrawlPages in
+    discovery order, mapping url -> _FetchResult for every visited URL incl.
+    non-200 / non-HTML so the technical crawl can record them)."""
     if not targets:
-        return []
-    results: dict[str, Optional[CrawlPage]] = {}
+        return [], {}
+    pages: dict[str, Optional[CrawlPage]] = {}
+    fetched: dict[str, _FetchResult] = {}
     workers = max(1, min(CRAWL_CONCURRENCY, len(targets)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         future_to_url = {
@@ -353,20 +416,28 @@ def _fetch_pages_parallel(
         for fut in future_to_url:
             url = future_to_url[fut]
             try:
-                results[url] = fut.result()
+                page, result = fut.result()
             except Exception as e:
                 logger.debug("Worker error on %s: %s", url, e)
-                results[url] = None
-    return [results[u] for u in targets if results.get(u) is not None]
+                page, result = None, None
+            pages[url] = page
+            if result is not None:
+                fetched[url] = result
+    ordered = [pages[u] for u in targets if pages.get(u) is not None]
+    return ordered, fetched
 
 
 def _fetch_page(
     client: httpx.Client, url: str, origin: str = ""
-) -> Optional[CrawlPage]:
-    meta = _fetch_html_with_meta(client, url)
-    if meta is None:
-        return None
-    html, final_url, hops = meta
+) -> tuple[Optional[CrawlPage], Optional["_FetchResult"]]:
+    result = _fetch_html_with_meta(client, url)
+    if result is None:
+        return None, None
+    if result.html is None:
+        # Non-200 or non-HTML — no CrawlPage, but keep the result for the
+        # technical crawl table.
+        return None, result
+    html, final_url, hops = result.html, result.final_url, result.hops
 
     # SPA fallback: when the raw HTML is a JS shell and Playwright is enabled,
     # retry via headless Chromium so we see the rendered DOM.
@@ -382,7 +453,7 @@ def _fetch_page(
         soup = _parse_html(html)
     except Exception as e:
         logger.warning("HTML parse failed on %s: %s", url, e)
-        return None
+        return None, result
 
     # title: prefer full text content (handles <title> with nested nodes).
     title = ""
@@ -441,8 +512,11 @@ def _fetch_page(
     html_lang = _extract_html_lang(soup)
     images = _extract_images(soup, url)
     images_without_alt = sum(1 for img in images if img.alt is None)
+    open_graph = _extract_open_graph(soup)
+    external_links_count = _count_external_links(soup, url, origin)
+    has_mixed_content = _detect_mixed_content(soup, url)
 
-    return CrawlPage(
+    page = CrawlPage(
         url=url,
         title=title,
         h1=h1,
@@ -463,7 +537,73 @@ def _fetch_page(
         htmlLang=html_lang,
         images=images,
         imagesWithoutAlt=images_without_alt,
+        openGraph=open_graph,
+        statusCode=result.status_code,
+        htmlBytes=result.html_bytes,
+        externalLinksCount=external_links_count,
+        hasMixedContent=has_mixed_content,
     )
+    return page, result
+
+
+# ---------------------------------------------------------------------------
+# Per-page metadata extractors (Screaming-Frog-style signals)
+
+
+def _extract_open_graph(soup: BeautifulSoup):
+    from api.models import OpenGraphData
+
+    def _mp(prop: str) -> Optional[str]:
+        tag = soup.find("meta", attrs={"property": prop})
+        if tag is None:
+            tag = soup.find("meta", attrs={"name": prop})
+        if tag is None:
+            return None
+        content = tag.get("content")
+        return content.strip() if isinstance(content, str) and content.strip() else None
+
+    twitter = _mp("twitter:card")
+    viewport = soup.find("meta", attrs={"name": re.compile("^viewport$", re.I)}) is not None
+    og = OpenGraphData(
+        ogTitle=_mp("og:title"),
+        ogDescription=_mp("og:description"),
+        ogImage=_mp("og:image"),
+        ogType=_mp("og:type"),
+        twitterCard=twitter,
+        hasViewportMeta=viewport,
+    )
+    return og
+
+
+def _count_external_links(soup: BeautifulSoup, page_url: str, origin: str) -> int:
+    if not origin:
+        origin = f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}"
+    origin_netloc = urlparse(origin).netloc
+    count = 0
+    for anchor in soup.find_all("a", href=True):
+        href = (anchor.get("href") or "").strip()
+        if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
+            continue
+        try:
+            netloc = urlparse(urljoin(page_url, href)).netloc
+        except Exception:
+            continue
+        if netloc and netloc != origin_netloc:
+            count += 1
+    return count
+
+
+def _detect_mixed_content(soup: BeautifulSoup, page_url: str) -> bool:
+    if urlparse(page_url).scheme != "https":
+        return False
+    for tag, attr in (("img", "src"), ("script", "src"), ("link", "href"),
+                      ("iframe", "src"), ("source", "src"), ("video", "src"),
+                      ("audio", "src")):
+        for node in soup.find_all(tag):
+            val = node.get(attr)
+            if isinstance(val, str) and val.strip().lower().startswith("http://"):
+                return True
+    return False
 
 
 def _extract_canonical(soup: BeautifulSoup, page_url: str) -> Optional[str]:
@@ -837,3 +977,194 @@ def _normalize(url: str) -> str:
 
 def _local_name(tag: str) -> str:
     return tag.split("}", 1)[1] if "}" in tag else tag
+
+
+# ---------------------------------------------------------------------------
+# Technical crawl table (Screaming-Frog-style)
+
+_TITLE_MAX = 60
+_TITLE_MIN = 30
+_META_MAX = 160
+_META_MIN = 70
+_LOW_TEXT_RATIO = 0.10
+
+
+def _build_technical_crawl(
+    pages: list[CrawlPage],
+    fetched: dict[str, "_FetchResult"],
+    depths: dict[str, int],
+    origin: str,
+) -> "TechnicalCrawlSummary":
+    from api.models import TechnicalCrawlSummary, TechnicalPageRow
+
+    by_url = {_normalize(p.url): p for p in pages}
+    rows: list[TechnicalPageRow] = []
+    status_counts: Counter[str] = Counter()
+
+    # 1. Rows for fully analysed pages (200 HTML).
+    title_groups: dict[str, list[str]] = {}
+    meta_groups: dict[str, list[str]] = {}
+    h1_groups: dict[str, list[str]] = {}
+
+    for p in pages:
+        norm = _normalize(p.url)
+        status = p.statusCode or 200
+        status_counts[str(status)] += 1
+        body_bytes = len(p.textSnippet.encode("utf-8")) if p.textSnippet else 0
+        # Better text estimate: wordCount * ~6 bytes/word as a floor; the
+        # snippet is truncated, so use wordCount when it's larger.
+        text_bytes = max(body_bytes, p.wordCount * 6)
+        html_bytes = p.htmlBytes or 0
+        text_ratio = round(text_bytes / html_bytes, 4) if html_bytes else 0.0
+        h1_count = sum(1 for h in p.headings if h)  # rough; headings list mixes h1-h3
+        # Precise h1 count needs the soup, which we no longer carry. Approx:
+        # treat "h1" presence by p.h1; multiple-h1 detection handled below via
+        # heading list heuristic (skip — keep 1 if p.h1 else 0).
+        h1_count = 1 if p.h1 else 0
+        h2_count = max(0, len([h for h in p.headings if h]) - h1_count)
+
+        issues: list[str] = []
+        tl = len(p.title or "")
+        ml = len(p.metaDescription or "") if p.metaDescription else 0
+        if not p.title:
+            issues.append("title manquant")
+        elif tl > _TITLE_MAX:
+            issues.append(f"title trop long ({tl} car.)")
+        elif tl < _TITLE_MIN:
+            issues.append(f"title trop court ({tl} car.)")
+        if not p.metaDescription:
+            issues.append("meta description manquante")
+        elif ml > _META_MAX:
+            issues.append(f"meta trop longue ({ml} car.)")
+        elif ml < _META_MIN:
+            issues.append(f"meta trop courte ({ml} car.)")
+        if not p.h1:
+            issues.append("H1 manquant")
+        if html_bytes and text_ratio < _LOW_TEXT_RATIO:
+            issues.append(f"ratio texte/HTML faible ({text_ratio:.0%})")
+        if p.canonical and p.canonical not in (norm, _normalize(p.finalUrl or "")):
+            issues.append("canonical pointe ailleurs")
+        if "noindex" in (p.robotsMeta or ""):
+            issues.append("noindex")
+        if p.imagesWithoutAlt:
+            issues.append(f"{p.imagesWithoutAlt} image(s) sans alt")
+        if p.hasMixedContent:
+            issues.append("mixed content (http:// sur page https://)")
+        if p.openGraph and not p.openGraph.hasViewportMeta:
+            issues.append("<meta viewport> absent")
+        if p.openGraph and not p.openGraph.ogTitle:
+            issues.append("Open Graph (og:title) absent")
+        if p.redirectChain:
+            issues.append(f"atteinte via {len(p.redirectChain)} redirection(s)")
+
+        # Indexability
+        indexable = True
+        reason = ""
+        if status != 200:
+            indexable, reason = False, f"statut {status}"
+        elif "noindex" in (p.robotsMeta or ""):
+            indexable, reason = False, "meta robots noindex"
+        elif p.canonical and p.canonical not in (norm, _normalize(p.finalUrl or "")):
+            indexable, reason = False, "canonical vers une autre URL"
+
+        if p.title:
+            title_groups.setdefault(p.title.strip().lower(), []).append(p.url)
+        if p.metaDescription:
+            meta_groups.setdefault(p.metaDescription.strip().lower(), []).append(p.url)
+        if p.h1:
+            h1_groups.setdefault(p.h1.strip().lower(), []).append(p.url)
+
+        rows.append(TechnicalPageRow(
+            url=p.url,
+            statusCode=status,
+            contentType="text/html",
+            isIndexable=indexable,
+            indexabilityReason=reason,
+            depth=depths.get(norm),
+            htmlBytes=html_bytes,
+            textBytes=text_bytes,
+            textRatio=text_ratio,
+            titleLength=tl,
+            metaDescLength=ml,
+            h1Count=h1_count,
+            h2Count=h2_count,
+            wordCount=p.wordCount,
+            internalLinksOut=p.internalLinksCount,
+            externalLinksOut=p.externalLinksCount,
+            imagesCount=len(p.images),
+            imagesWithoutAlt=p.imagesWithoutAlt,
+            issues=issues,
+        ))
+
+    # 2. Rows for visited-but-not-analysed URLs (4xx/5xx/non-HTML).
+    for url, fr in fetched.items():
+        norm = _normalize(url)
+        if norm in by_url:
+            continue  # already covered
+        status = fr.status_code
+        status_counts[str(status) if status is not None else "ERR"] += 1
+        issues = []
+        if status is None:
+            issues.append("aucune réponse / erreur réseau")
+        elif 400 <= status < 500:
+            issues.append(f"erreur client {status}")
+        elif 500 <= status < 600:
+            issues.append(f"erreur serveur {status}")
+        elif "text/html" not in fr.content_type:
+            issues.append(f"non-HTML ({fr.content_type or 'inconnu'})")
+        rows.append(TechnicalPageRow(
+            url=url,
+            statusCode=status,
+            contentType=fr.content_type,
+            isIndexable=False,
+            indexabilityReason=issues[0] if issues else "non-HTML",
+            depth=depths.get(norm),
+            htmlBytes=fr.html_bytes,
+            issues=issues,
+        ))
+
+    # 3. Aggregates
+    dup_titles = [urls for urls in title_groups.values() if len(urls) > 1]
+    dup_metas = [urls for urls in meta_groups.values() if len(urls) > 1]
+    dup_h1s = [urls for urls in h1_groups.values() if len(urls) > 1]
+    missing_titles = [p.url for p in pages if not p.title]
+    missing_metas = [p.url for p in pages if not p.metaDescription]
+    missing_h1 = [p.url for p in pages if not p.h1]
+    title_long = [p.url for p in pages if p.title and len(p.title) > _TITLE_MAX]
+    title_short = [p.url for p in pages if p.title and len(p.title) < _TITLE_MIN]
+    meta_long = [p.url for p in pages if p.metaDescription and len(p.metaDescription) > _META_MAX]
+    meta_short = [p.url for p in pages if p.metaDescription and 0 < len(p.metaDescription) < _META_MIN]
+    low_ratio = [
+        r.url for r in rows
+        if r.statusCode == 200 and r.htmlBytes and r.textRatio < _LOW_TEXT_RATIO
+    ]
+    # Broken internal links: targets that appear in some page's internalLinks
+    # AND were fetched with a 4xx/5xx status.
+    broken = sorted({
+        url for url, fr in fetched.items()
+        if fr.status_code is not None and 400 <= fr.status_code < 600
+    })
+    indexable_n = sum(1 for r in rows if r.isIndexable)
+    max_depth = max((r.depth for r in rows if r.depth is not None), default=0)
+
+    return TechnicalCrawlSummary(
+        pagesCrawled=len(rows),
+        statusCounts=dict(status_counts),
+        indexablePages=indexable_n,
+        nonIndexablePages=len(rows) - indexable_n,
+        duplicateTitles=dup_titles[:30],
+        duplicateMetaDescriptions=dup_metas[:30],
+        duplicateH1s=dup_h1s[:30],
+        missingTitles=missing_titles[:50],
+        missingMetaDescriptions=missing_metas[:50],
+        missingH1=missing_h1[:50],
+        multipleH1=[],  # precise multi-H1 needs the DOM we no longer carry
+        titleTooLong=title_long[:50],
+        titleTooShort=title_short[:50],
+        metaTooLong=meta_long[:50],
+        metaTooShort=meta_short[:50],
+        lowTextRatioPages=low_ratio[:50],
+        brokenInternalLinks=broken[:50],
+        maxDepth=max_depth,
+        rows=rows,
+    )

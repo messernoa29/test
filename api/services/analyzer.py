@@ -153,6 +153,8 @@ Si tu n'as pas assez de facteurs observables sur un axe (< 4/7) → dis-le dans 
 
 {technical_block}
 
+{crawl_table_block}
+
 ## Sortie STRICTE (aucun texte hors balises)
 
 <OVERVIEW_JSON>
@@ -420,6 +422,7 @@ def _run_overview(crawl: CrawlData, crawl_json: str) -> dict:
         link_graph_block=_format_link_graph(crawl),
         quality_block=_format_quality(crawl),
         technical_block=_format_technical(crawl),
+        crawl_table_block=_format_technical_crawl(crawl),
     )
     response = get_llm_client().generate(
         system=_SYSTEM, user_prompt=prompt, max_tokens=16000,
@@ -610,6 +613,72 @@ def _format_schemas(crawl: CrawlData) -> str:
     lines.append(
         "→ Utilise ces données comme source de vérité pour les findings "
         "schema dans l'axe `seo` (ne pas deviner, ne pas recommander ce qui est déjà présent)."
+    )
+    return "\n".join(lines)
+
+
+def _format_technical_crawl(crawl: CrawlData) -> str:
+    """Screaming-Frog-style crawl aggregates for the analyzer prompt."""
+    tc = crawl.technicalCrawl
+    if tc is None or tc.pagesCrawled == 0:
+        return (
+            "## Crawl technique (analyse Python, façon Screaming Frog)\n"
+            "Pas de données de crawl technique."
+        )
+    lines = [
+        "## Crawl technique (analyse Python, façon Screaming Frog)",
+        f"Pages/URLs visitées : {tc.pagesCrawled} · "
+        f"indexables : {tc.indexablePages} · non-indexables : {tc.nonIndexablePages} · "
+        f"profondeur max : {tc.maxDepth} clics",
+        f"Codes HTTP : {', '.join(f'{k}×{v}' for k, v in sorted(tc.statusCounts.items()))}",
+    ]
+
+    def _grp(name: str, groups: list[list[str]]) -> None:
+        if not groups:
+            return
+        lines.append(f"### {name} ({len(groups)} groupe(s))")
+        for g in groups[:6]:
+            lines.append(f"- {len(g)} pages : {', '.join(g[:4])}{' …' if len(g) > 4 else ''}")
+
+    def _lst(name: str, urls: list[str]) -> None:
+        if not urls:
+            return
+        lines.append(f"### {name} ({len(urls)})")
+        for u in urls[:8]:
+            lines.append(f"- {u}")
+        if len(urls) > 8:
+            lines.append(f"- … (+{len(urls) - 8})")
+
+    _grp("Titres dupliqués", tc.duplicateTitles)
+    _grp("Meta descriptions dupliquées", tc.duplicateMetaDescriptions)
+    _grp("H1 dupliqués", tc.duplicateH1s)
+    _lst("Pages sans <title>", tc.missingTitles)
+    _lst("Pages sans meta description", tc.missingMetaDescriptions)
+    _lst("Pages sans H1", tc.missingH1)
+    _lst("Titres trop longs (> 60 car.)", tc.titleTooLong)
+    _lst("Titres trop courts (< 30 car.)", tc.titleTooShort)
+    _lst("Meta trop longues (> 160 car.)", tc.metaTooLong)
+    _lst("Meta trop courtes (< 70 car.)", tc.metaTooShort)
+    _lst("Pages à faible ratio texte/HTML (< 10%)", tc.lowTextRatioPages)
+    _lst("Liens internes cassés (cibles 4xx/5xx)", tc.brokenInternalLinks)
+
+    # Per-page issue digest (top 15 most-issued pages)
+    issued = sorted(
+        [r for r in tc.rows if r.issues], key=lambda r: -len(r.issues)
+    )[:15]
+    if issued:
+        lines.append("### Pages avec le plus de problèmes (digest)")
+        for r in issued:
+            lines.append(
+                f"- {r.url} [{r.statusCode}, profondeur {r.depth}] : {'; '.join(r.issues)}"
+            )
+
+    lines.append(
+        "→ Tous ces points sont OBSERVÉS. Crée des findings concrets dans "
+        "`seo` (titres/meta/H1/canonical/redirections), `performance` "
+        "(ratio texte/HTML, taille HTML), `ux` (viewport, mixed content). "
+        "Donne pour chaque finding la liste des URLs concernées et l'action "
+        "exacte. Ne pas re-deviner."
     )
     return "\n".join(lines)
 

@@ -8,8 +8,9 @@ import { DriftView } from './DriftView'
 import { FindingRow } from './FindingRow'
 import { PageSheet } from './PageSheet'
 import { MissingPagesTable } from './MissingPagesTable'
+import { TechnicalCrawlTab } from './TechnicalCrawlTab'
 
-type TabId = 'overview' | AuditSection | 'pages' | 'missing' | 'compare'
+type TabId = 'overview' | AuditSection | 'pages' | 'crawl' | 'missing' | 'compare'
 
 interface Props {
   audit: AuditResult
@@ -25,6 +26,11 @@ export function AuditDetailView({ audit }: Props) {
         count: s.findings.length,
       })),
       { id: 'pages', label: 'Pages', count: audit.pages?.length ?? 0 },
+      {
+        id: 'crawl',
+        label: 'Crawl technique',
+        count: audit.technicalCrawl?.pagesCrawled ?? 0,
+      },
       {
         id: 'missing',
         label: 'Pages manquantes',
@@ -77,6 +83,7 @@ export function AuditDetailView({ audit }: Props) {
           active === s.section ? <AxisTab key={s.section} section={s} /> : null,
         )}
         {active === 'pages' && <PagesTab pages={audit.pages ?? []} />}
+        {active === 'crawl' && <TechnicalCrawlTab data={audit.technicalCrawl} />}
         {active === 'missing' && (
           <MissingTab pages={audit.missingPages ?? []} />
         )}

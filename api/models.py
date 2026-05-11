@@ -230,6 +230,65 @@ class HreflangEntry(BaseModel):
     href: str
 
 
+class OpenGraphData(BaseModel):
+    """Social-card metadata observed on a page."""
+
+    ogTitle: Optional[str] = None
+    ogDescription: Optional[str] = None
+    ogImage: Optional[str] = None
+    ogType: Optional[str] = None
+    twitterCard: Optional[str] = None
+    hasViewportMeta: bool = False
+
+
+class TechnicalPageRow(BaseModel):
+    """One row of the Screaming-Frog-style crawl table."""
+
+    url: str
+    statusCode: Optional[int] = None  # None = no response / network error
+    contentType: str = ""
+    isIndexable: bool = True  # 200 + not noindex + canonical to self/none
+    indexabilityReason: str = ""  # why not indexable, when applicable
+    depth: Optional[int] = None  # clicks from the entry URL (BFS distance)
+    htmlBytes: int = 0
+    textBytes: int = 0
+    textRatio: float = 0.0  # textBytes / htmlBytes
+    titleLength: int = 0
+    metaDescLength: int = 0
+    h1Count: int = 0
+    h2Count: int = 0
+    wordCount: int = 0
+    internalLinksOut: int = 0
+    externalLinksOut: int = 0
+    imagesCount: int = 0
+    imagesWithoutAlt: int = 0
+    issues: list[str] = Field(default_factory=list)  # short issue codes/labels
+
+
+class TechnicalCrawlSummary(BaseModel):
+    """Site-wide aggregates over the technical crawl, plus the per-page rows."""
+
+    pagesCrawled: int = 0
+    statusCounts: dict[str, int] = Field(default_factory=dict)  # "200" -> n
+    indexablePages: int = 0
+    nonIndexablePages: int = 0
+    duplicateTitles: list[list[str]] = Field(default_factory=list)  # groups of URLs
+    duplicateMetaDescriptions: list[list[str]] = Field(default_factory=list)
+    duplicateH1s: list[list[str]] = Field(default_factory=list)
+    missingTitles: list[str] = Field(default_factory=list)
+    missingMetaDescriptions: list[str] = Field(default_factory=list)
+    missingH1: list[str] = Field(default_factory=list)
+    multipleH1: list[str] = Field(default_factory=list)
+    titleTooLong: list[str] = Field(default_factory=list)  # > 60 chars
+    titleTooShort: list[str] = Field(default_factory=list)  # < 30 chars
+    metaTooLong: list[str] = Field(default_factory=list)  # > 160 chars
+    metaTooShort: list[str] = Field(default_factory=list)  # 1..70 chars
+    lowTextRatioPages: list[str] = Field(default_factory=list)  # < 0.10
+    brokenInternalLinks: list[str] = Field(default_factory=list)  # 4xx/5xx targets
+    maxDepth: int = 0
+    rows: list[TechnicalPageRow] = Field(default_factory=list)
+
+
 class ImageAsset(BaseModel):
     """One <img> tag observed on a page."""
 
@@ -273,6 +332,16 @@ class CrawlPage(BaseModel):
     # Image inventory.
     images: list[ImageAsset] = Field(default_factory=list)
     imagesWithoutAlt: int = 0
+    # Social-card metadata.
+    openGraph: Optional[OpenGraphData] = None
+    # HTTP status of the (final) response. 200 for fully crawled pages.
+    statusCode: Optional[int] = None
+    # Raw HTML byte length.
+    htmlBytes: int = 0
+    # Outbound link counts.
+    externalLinksCount: int = 0
+    # True if the page declares mixed content (http:// asset on https:// page).
+    hasMixedContent: bool = False
 
 
 class LinkGraphPageStat(BaseModel):
@@ -353,6 +422,7 @@ class CrawlData(BaseModel):
     linkGraph: Optional[LinkGraphSummary] = None
     duplicates: list[DuplicatePair] = Field(default_factory=list)
     redirectChains: list[RedirectChain] = Field(default_factory=list)
+    technicalCrawl: Optional[TechnicalCrawlSummary] = None
 
 
 class AuditResult(BaseModel):
@@ -369,6 +439,9 @@ class AuditResult(BaseModel):
     quickWins: list[str] = Field(default_factory=list)
     pages: Optional[list[PageAnalysis]] = None
     missingPages: Optional[list[MissingPage]] = None
+    # Screaming-Frog-style technical crawl table (populated by the runner from
+    # the CrawlData, not by the LLM).
+    technicalCrawl: Optional[TechnicalCrawlSummary] = None
 
     @field_validator("globalScore", mode="before")
     @classmethod

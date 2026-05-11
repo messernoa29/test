@@ -160,6 +160,68 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
         for p in audit.pages:
             L.extend(_page_block(p))
 
+    # Technical crawl table (Screaming-Frog-style)
+    tc = audit.technicalCrawl
+    if tc and tc.pagesCrawled:
+        L.append("## Crawl technique")
+        L.append("")
+        L.append(
+            f"- URLs crawlées : {tc.pagesCrawled} · indexables : {tc.indexablePages} · "
+            f"non-indexables : {tc.nonIndexablePages} · profondeur max : {tc.maxDepth} clics"
+        )
+        if tc.statusCounts:
+            L.append(
+                "- Codes HTTP : "
+                + ", ".join(f"{k}×{v}" for k, v in sorted(tc.statusCounts.items()))
+            )
+        L.append("")
+
+        def _md_group(name: str, groups: list) -> None:
+            if not groups:
+                return
+            L.append(f"### {name} ({len(groups)})")
+            for g in groups[:10]:
+                L.append(f"- {len(g)} pages : {', '.join(g[:4])}{' …' if len(g) > 4 else ''}")
+            L.append("")
+
+        def _md_list(name: str, urls: list) -> None:
+            if not urls:
+                return
+            L.append(f"### {name} ({len(urls)})")
+            for u in urls[:30]:
+                L.append(f"- [ ] {u}")
+            if len(urls) > 30:
+                L.append(f"- … +{len(urls) - 30}")
+            L.append("")
+
+        _md_group("Titres dupliqués", tc.duplicateTitles)
+        _md_group("Meta descriptions dupliquées", tc.duplicateMetaDescriptions)
+        _md_group("H1 dupliqués", tc.duplicateH1s)
+        _md_list("Pages sans <title>", tc.missingTitles)
+        _md_list("Pages sans meta description", tc.missingMetaDescriptions)
+        _md_list("Pages sans H1", tc.missingH1)
+        _md_list("Titres trop longs (> 60 car.)", tc.titleTooLong)
+        _md_list("Titres trop courts (< 30 car.)", tc.titleTooShort)
+        _md_list("Meta trop longues (> 160 car.)", tc.metaTooLong)
+        _md_list("Pages à faible ratio texte/HTML (< 10%)", tc.lowTextRatioPages)
+        _md_list("Liens internes cassés (cibles 4xx/5xx)", tc.brokenInternalLinks)
+
+        # Full table
+        L.append("### Tableau complet (une ligne par URL)")
+        L.append("")
+        L.append("| URL | Code | Prof. | Indexable | Title | Meta | H1 | Mots | Liens int/ext | Img (sans alt) | Problèmes |")
+        L.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+        for r in tc.rows:
+            idx = "✓" if r.isIndexable else f"✗ ({r.indexabilityReason})"
+            img = f"{r.imagesCount}" + (f" ({r.imagesWithoutAlt})" if r.imagesWithoutAlt else "")
+            L.append(
+                f"| {_esc(r.url)} | {r.statusCode or 'ERR'} | {r.depth if r.depth is not None else '—'} "
+                f"| {idx} | {r.titleLength or '—'} | {r.metaDescLength or '—'} | {r.h1Count} "
+                f"| {r.wordCount or '—'} | {r.internalLinksOut}/{r.externalLinksOut} | {img} "
+                f"| {_esc('; '.join(r.issues)) or 'OK'} |"
+            )
+        L.append("")
+
     # Missing pages
     if audit.missingPages:
         L.append("## Pages à créer")
