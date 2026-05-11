@@ -45,9 +45,9 @@ def _get_executor() -> ThreadPoolExecutor:
         return _executor
 
 
-def submit_audit(job_id: str, url: str) -> None:
+def submit_audit(job_id: str, url: str, max_pages: int = 50) -> None:
     """Queue a pipeline run; updates the store as it progresses."""
-    _get_executor().submit(_run, job_id, url)
+    _get_executor().submit(_run, job_id, url, max_pages)
 
 
 def shutdown_executor(wait: bool = False) -> None:
@@ -62,13 +62,13 @@ def shutdown_executor(wait: bool = False) -> None:
             _executor = None
 
 
-def _run(job_id: str, url: str) -> None:
+def _run(job_id: str, url: str, max_pages: int = 50) -> None:
     store = get_store()
     # try/finally guarantees we never leave a job in `pending` silently if
     # the thread dies from something unexpected (OSError, MemoryError, ...).
     success = False
     try:
-        crawl_data = crawler.crawl(url)
+        crawl_data = crawler.crawl(url, max_pages=max_pages)
         if not crawl_data.pages:
             store.fail_job(
                 job_id, "Le site n'a pas répondu ou aucune page n'a été trouvée."

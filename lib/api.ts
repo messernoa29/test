@@ -137,11 +137,14 @@ export async function verifyPassword(password: string): Promise<boolean> {
   }
 }
 
-export async function runAudit(url: string): Promise<AuditJobSummary> {
+export async function runAudit(
+  url: string,
+  maxPages = 50,
+): Promise<AuditJobSummary> {
   return request<AuditJobSummary>('/audit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, maxPages }),
   })
 }
 

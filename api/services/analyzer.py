@@ -523,7 +523,28 @@ def _run_missing(crawl: CrawlData) -> list[dict]:
 # Helpers
 
 
+# Above this many crawled pages, the full per-page block in the overview
+# prompt becomes too large / costly. We keep ALL pages in the link-graph and
+# the technical/quality aggregates, but truncate the per-page detail list
+# down to a representative sample (hubs first, then the rest) and tell the
+# model the total so it knows it's looking at a sample.
+_OVERVIEW_PAGE_DETAIL_CAP = 60
+
+
 def _compact_crawl(crawl: CrawlData) -> str:
+    pages = list(crawl.pages)
+    total = len(pages)
+    sampled = False
+    if total > _OVERVIEW_PAGE_DETAIL_CAP:
+        sampled = True
+        hub_urls = set(crawl.linkGraph.hubPages) if crawl.linkGraph else set()
+        orphan_urls = set(crawl.linkGraph.orphanPages) if crawl.linkGraph else set()
+        # Priority: home + hubs + orphans (they carry the actionable findings),
+        # then fill with the rest in crawl order.
+        priority = [p for p in pages if p.url in hub_urls or p.url in orphan_urls or p.url == crawl.url]
+        rest = [p for p in pages if p not in priority]
+        pages = (priority + rest)[:_OVERVIEW_PAGE_DETAIL_CAP]
+
     compact = [
         {
             "url": p.url,
@@ -531,18 +552,25 @@ def _compact_crawl(crawl: CrawlData) -> str:
             "h1": p.h1,
             "metaDescription": p.metaDescription,
             "headings": p.headings[:6],
+            "wordCount": p.wordCount,
+            "canonical": p.canonical,
+            "robotsMeta": p.robotsMeta or None,
             "schemas": [
                 {"type": s.type, "format": s.format, "status": s.status}
                 for s in p.schemas
             ],
         }
-        for p in crawl.pages
+        for p in pages
     ]
-    return json.dumps(
-        {"domain": crawl.domain, "url": crawl.url, "pages": compact},
-        ensure_ascii=False,
-        indent=2,
-    )
+    payload: dict = {"domain": crawl.domain, "url": crawl.url, "pages": compact}
+    if sampled:
+        payload["_note"] = (
+            f"{total} pages crawlées au total ; détail par page limité à "
+            f"{len(compact)} (hubs + orphelines + échantillon). Les agrégats "
+            "maillage / technique / qualité plus bas couvrent les "
+            f"{total} pages."
+        )
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def _format_schemas(crawl: CrawlData) -> str:

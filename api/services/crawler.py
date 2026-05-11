@@ -69,8 +69,13 @@ DUPLICATE_PAIRS_LIMIT = 20
 CRAWL_CONCURRENCY = int(os.getenv("CRAWL_CONCURRENCY", "8"))
 
 
-def crawl(url: str) -> CrawlData:
-    """Crawl the site and return structured page data."""
+def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
+    """Crawl the site and return structured page data.
+
+    `max_pages` caps how many discovered URLs we fully fetch. Callers pass
+    the user-chosen depth (50 / 150 / 300); we clamp to a hard ceiling.
+    """
+    max_pages = max(1, min(int(max_pages or MAX_PAGES), 300))
     base = _normalize(url)
     parsed = urlparse(base)
     origin = f"{parsed.scheme}://{parsed.netloc}"
@@ -84,10 +89,10 @@ def crawl(url: str) -> CrawlData:
     )
 
     try:
-        discovered = _discover_urls(client, origin, base)
+        discovered = _discover_urls(client, origin, base, cap=max(max_pages * 2, MAX_DISCOVERY_LINKS))
         logger.info("Discovered %d candidate URLs for %s", len(discovered), origin)
 
-        targets = discovered[:MAX_PAGES]
+        targets = discovered[:max_pages]
         pages = _fetch_pages_parallel(client, targets, origin)
 
         link_graph = _build_link_graph(client, pages)
@@ -117,7 +122,7 @@ def crawl(url: str) -> CrawlData:
 
 
 def _discover_urls(
-    client: httpx.Client, origin: str, entry_url: str
+    client: httpx.Client, origin: str, entry_url: str, cap: int = MAX_DISCOVERY_LINKS
 ) -> list[str]:
     """Return a deduplicated, ordered list of same-origin URLs worth crawling.
 
@@ -126,6 +131,7 @@ def _discover_urls(
     2. URLs linked from the homepage navigation/body (BFS depth 1).
     3. The entry URL itself.
     """
+    cap = max(1, cap)
     urls: list[str] = []
     seen: set[str] = set()
 
@@ -143,14 +149,14 @@ def _discover_urls(
     for sitemap_url in _sitemap_candidates(client, origin):
         for sitemap_entry in _read_sitemap(client, sitemap_url, depth=0):
             push(sitemap_entry)
-            if len(urls) >= MAX_DISCOVERY_LINKS:
+            if len(urls) >= cap:
                 break
-        if len(urls) >= MAX_DISCOVERY_LINKS:
+        if len(urls) >= cap:
             break
 
     for link in _walk_links_bfs(client, entry_url, origin):
         push(link)
-        if len(urls) >= MAX_DISCOVERY_LINKS:
+        if len(urls) >= cap:
             break
 
     return urls

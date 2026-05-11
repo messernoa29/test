@@ -410,6 +410,21 @@ class AuditRequest(BaseModel):
     url: HttpUrl
     includeSeoDeep: bool = False
     agencyName: Optional[str] = None
+    # Max pages to fully crawl. Clamped server-side to {50, 150, 300}.
+    maxPages: int = 50
+
+    @field_validator("maxPages", mode="before")
+    @classmethod
+    def _clamp_max_pages(cls, v: object) -> int:
+        try:
+            n = int(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 50
+        if n <= 50:
+            return 50
+        if n <= 150:
+            return 150
+        return 300
 
 
 JobStatus = Literal["pending", "done", "failed"]
