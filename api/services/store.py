@@ -338,38 +338,86 @@ def _parse_iso(ts: str) -> datetime:
 # Factory
 
 
+import threading as _threading
+import time as _time
+
 _store: Optional[object] = None
 # True only when the active store survives process restarts (SQL backend).
 # False when we run on the in-memory fallback (data wiped on redeploy).
 _store_persistent: bool = False
+_store_lock = _threading.Lock()
+# When we fell back to in-memory because the SQL backend was unreachable,
+# we keep retrying it in the background (the DB may come up shortly after a
+# deploy). Once it connects, future get_store() calls return the SQL store.
+_sql_url_pending: Optional[str] = None
+_last_sql_retry: float = 0.0
+_SQL_RETRY_INTERVAL_S = 30.0
+
+
+def _try_build_sql():
+    """Attempt to construct the SQL store. Returns it or None."""
+    try:
+        from api.services.store_sql import SqlAuditStore
+        return SqlAuditStore()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("SQL store still unavailable: %s", e)
+        return None
 
 
 def get_store():
     """Return the active store. Picks SQL when a DATABASE_URL is set, else
-    falls back to in-memory. Cached per process."""
-    global _store, _store_persistent
-    if _store is not None:
-        return _store
+    falls back to in-memory. If SQL was configured but unreachable, retries
+    it every _SQL_RETRY_INTERVAL_S so the app recovers without a restart."""
+    global _store, _store_persistent, _sql_url_pending, _last_sql_retry
+    with _store_lock:
+        # Already persistent — nothing to do.
+        if _store is not None and _store_persistent:
+            return _store
 
-    from api.config import get_settings
-    url = (get_settings().database_url or "").strip()
-    if not url:
-        _store = InMemoryAuditStore()
-        _store_persistent = False
-        return _store
+        from api.config import get_settings
+        url = (get_settings().database_url or "").strip()
 
-    try:
-        from api.services.store_sql import SqlAuditStore
-        _store = SqlAuditStore()
-        _store_persistent = True
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception(
-            "SQL store failed to initialise — falling back to in-memory: %s", e
-        )
-        _store = InMemoryAuditStore()
-        _store_persistent = False
-    return _store
+        # No DB configured at all → in-memory, no retry.
+        if not url:
+            if _store is None:
+                _store = InMemoryAuditStore()
+                _store_persistent = False
+            return _store
+
+        # First call with a DB configured.
+        if _store is None:
+            sql = _try_build_sql()
+            if sql is not None:
+                _store = sql
+                _store_persistent = True
+                return _store
+            import logging
+            logging.getLogger(__name__).error(
+                "SQL store unreachable at startup — using in-memory fallback; "
+                "will retry every %ss", int(_SQL_RETRY_INTERVAL_S),
+            )
+            _store = InMemoryAuditStore()
+            _store_persistent = False
+            _sql_url_pending = url
+            _last_sql_retry = _time.monotonic()
+            return _store
+
+        # We're on the in-memory fallback with a DB configured — periodic retry.
+        now = _time.monotonic()
+        if now - _last_sql_retry >= _SQL_RETRY_INTERVAL_S:
+            _last_sql_retry = now
+            sql = _try_build_sql()
+            if sql is not None:
+                import logging
+                logging.getLogger(__name__).info(
+                    "SQL store now reachable — switching away from in-memory "
+                    "fallback (in-memory data from this session is not migrated)"
+                )
+                _store = sql
+                _store_persistent = True
+                _sql_url_pending = None
+        return _store
 
 
 def is_persistent() -> bool:
