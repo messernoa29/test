@@ -351,42 +351,68 @@ def _time_boxed(fn: Callable, timeout_s: float, label: str):
         return None
 
 
-def analyze(crawl: CrawlData, *, on_progress: Optional[Callable[[str], None]] = None) -> AuditResult:
+def analyze(
+    crawl: CrawlData,
+    *,
+    on_progress: Optional[Callable[[str], None]] = None,
+    deadline_monotonic: Optional[float] = None,
+) -> AuditResult:
     """Run the full multi-pass analysis and return a merged AuditResult.
-    `on_progress` (optional) receives short status strings as passes run."""
+    `on_progress` receives status strings; `deadline_monotonic` (a time.monotonic
+    value) bounds the optional passes so the whole audit can't overrun."""
+    import time as _time
     _p = on_progress or (lambda _m: None)
+
+    def _budget(default_s: float) -> float:
+        """Remaining time before the deadline, clamped to (5, default_s)."""
+        if deadline_monotonic is None:
+            return default_s
+        remaining = deadline_monotonic - _time.monotonic()
+        return max(5.0, min(default_s, remaining))
+
     crawl_json = _compact_crawl(crawl)
 
+    # Core passes (overview + per-page + missing) are required — wrap each in a
+    # generous time box so a single stuck Gemini call can't hang the worker.
     _p("Vue d'ensemble : scoring des 6 axes…")
-    overview = _run_overview(crawl, crawl_json)
+    overview = _time_boxed(lambda: _run_overview(crawl, crawl_json), _budget(180), "overview")
     if not isinstance(overview, dict):
-        raise ValueError("Overview response is not a JSON object")
+        raise ValueError("Overview pass failed or timed out")
     _sanitize_sections(overview)
     time.sleep(INTER_CALL_DELAY_S)
 
     selected_count = len(_select_pages_for_detail(crawl))
     _p(f"Analyse page par page ({selected_count} pages détaillées)…")
-    pages = _run_pages_batched(crawl, on_progress=_p)
+    pages = _time_boxed(
+        lambda: _run_pages_batched(crawl, on_progress=_p), _budget(420), "pages"
+    ) or []
     pages = _dedupe_pages(pages)
     _sanitize_pages(pages)
     time.sleep(INTER_CALL_DELAY_S)
 
     _p("Détection des pages manquantes…")
-    missing = _run_missing(crawl)
+    missing = _time_boxed(lambda: _run_missing(crawl), _budget(120), "missing") or []
     _sanitize_missing(missing)
 
-    # Optional web_search passes — best-effort, time-boxed so a slow/rate-
-    # limited Gemini call can't stall the whole audit. If they don't finish
-    # in time we just omit them.
+    # Optional web_search passes — best-effort, time-boxed against the remaining
+    # budget. If the audit is already near its deadline, skip them entirely.
     time.sleep(INTER_CALL_DELAY_S)
-    _p("Estimation de visibilité organique (recherche web)…")
-    visibility = _time_boxed(lambda: _run_visibility_estimate(crawl, pages), 90, "visibility")
-    if visibility is None:
-        _p("Estimation de visibilité ignorée (délai dépassé)")
-    _p("Analyse SXO (type de page vs SERP)…")
-    sxo = _time_boxed(lambda: _run_sxo(crawl, pages), 90, "sxo")
-    if sxo is None:
-        _p("Analyse SXO ignorée (délai dépassé)")
+    if _budget(0.0) > 20:
+        _p("Estimation de visibilité organique (recherche web)…")
+        visibility = _time_boxed(lambda: _run_visibility_estimate(crawl, pages), _budget(90), "visibility")
+        if visibility is None:
+            _p("Estimation de visibilité ignorée (délai/erreur)")
+    else:
+        visibility = None
+        _p("Estimation de visibilité ignorée (budget temps épuisé)")
+    if _budget(0.0) > 20:
+        _p("Analyse SXO (type de page vs SERP)…")
+        sxo = _time_boxed(lambda: _run_sxo(crawl, pages), _budget(90), "sxo")
+        if sxo is None:
+            _p("Analyse SXO ignorée (délai/erreur)")
+    else:
+        sxo = None
+        _p("Analyse SXO ignorée (budget temps épuisé)")
 
     _log_coverage(crawl, pages)
 

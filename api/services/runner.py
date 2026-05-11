@@ -33,61 +33,81 @@ from api.services.store import get_store
 
 logger = logging.getLogger(__name__)
 
+import threading as _threading
+import time as _time
+
 _executor: Optional[ThreadPoolExecutor] = None
 _executor_lock = Lock()
 
+# Hard ceiling on a single audit. Past this, the in-pipeline guard (checked
+# between stages) aborts; a background sweeper also catches jobs whose worker
+# died entirely. Generous because Gemini free-tier rate limits add minutes.
+AUDIT_HARD_TIMEOUT_S = 20 * 60
+
+# Tracks when each running audit started (monotonic), so the sweeper can fail
+# the ones that have been pending too long without a per-audit thread.
+_audit_started_at: dict[str, float] = {}
+_audit_started_lock = Lock()
+_sweeper_thread: Optional[_threading.Thread] = None
+
+
+class AuditTimeout(Exception):
+    """Raised inside _run when the audit exceeds AUDIT_HARD_TIMEOUT_S."""
+
 
 def _get_executor() -> ThreadPoolExecutor:
-    global _executor
+    global _executor, _sweeper_thread
     with _executor_lock:
         if _executor is None:
             _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="audit")
+        if _sweeper_thread is None or not _sweeper_thread.is_alive():
+            _sweeper_thread = _threading.Thread(
+                target=_sweep_stale_audits, name="audit-sweeper", daemon=True,
+            )
+            _sweeper_thread.start()
         return _executor
 
 
-# Hard ceiling on a single audit. Past this, mark it failed and free the job
-# (the worker thread is left to finish on its own — it can't be killed — but
-# the job no longer sits in "pending" forever).
-AUDIT_HARD_TIMEOUT_S = 15 * 60
+def _sweep_stale_audits() -> None:
+    """Daemon: every 60s, fail any audit that's been running past the hard
+    timeout (covers the case where its worker thread died outright). One
+    thread for the whole process — no per-audit thread."""
+    while True:
+        _time.sleep(60)
+        try:
+            now = _time.monotonic()
+            stale: list[str] = []
+            with _audit_started_lock:
+                for jid, started in list(_audit_started_at.items()):
+                    if now - started > AUDIT_HARD_TIMEOUT_S + 30:
+                        stale.append(jid)
+            if not stale:
+                continue
+            store = get_store()
+            from api.services import progress
+            for jid in stale:
+                try:
+                    job = store.get(jid)
+                    if job is not None and job.status == "pending":
+                        logger.warning("Sweeper: audit %s stale — marking failed", jid)
+                        progress.add(jid, "Audit interrompu (délai dépassé, worker perdu)")
+                        store.fail_job(
+                            jid,
+                            f"L'audit a dépassé le délai de {AUDIT_HARD_TIMEOUT_S // 60} min "
+                            "et a été interrompu.",
+                        )
+                finally:
+                    with _audit_started_lock:
+                        _audit_started_at.pop(jid, None)
+        except Exception as e:
+            logger.warning("Sweeper error: %s", e)
 
 
 def submit_audit(job_id: str, url: str, max_pages: int = 50) -> None:
-    """Queue a pipeline run with a hard timeout watchdog."""
-    _get_executor().submit(_run_watchdogged, job_id, url, max_pages)
-
-
-def _run_watchdogged(job_id: str, url: str, max_pages: int) -> None:
-    """Run _run in a nested thread; if it overruns AUDIT_HARD_TIMEOUT_S,
-    mark the job failed so it doesn't hang in 'pending'. The inner thread is
-    left to finish on its own (Python can't kill threads) — but the job is
-    freed and the user sees a clear error."""
-    import threading
-    from concurrent.futures import ThreadPoolExecutor as _TPE
-    from concurrent.futures import TimeoutError as _FTimeout
-
-    inner = _TPE(max_workers=1, thread_name_prefix="audit-inner")
-    fut = inner.submit(_run, job_id, url, max_pages)
-    inner.shutdown(wait=False)  # don't block this thread on the inner one
-    try:
-        fut.result(timeout=AUDIT_HARD_TIMEOUT_S)
-    except _FTimeout:
-        logger.warning("Audit %s exceeded %ss — marking failed", job_id, AUDIT_HARD_TIMEOUT_S)
-        try:
-            from api.services import progress
-            progress.add(job_id, f"Délai dépassé ({AUDIT_HARD_TIMEOUT_S // 60} min) — audit abandonné")
-            store = get_store()
-            job = store.get(job_id)
-            if job is not None and job.status == "pending":
-                store.fail_job(
-                    job_id,
-                    f"L'audit a dépassé le délai maximum de {AUDIT_HARD_TIMEOUT_S // 60} minutes. "
-                    "Réessayez avec moins de pages, ou vérifiez les quotas de l'API Gemini.",
-                )
-        except Exception as e:
-            logger.warning("Failed to mark timed-out audit %s: %s", job_id, e)
-    except Exception:
-        # _run already records its own failure; nothing to do here.
-        pass
+    """Queue a pipeline run on the shared pool."""
+    with _audit_started_lock:
+        _audit_started_at[job_id] = _time.monotonic()
+    _get_executor().submit(_run, job_id, url, max_pages)
 
 
 def shutdown_executor(wait: bool = False) -> None:
@@ -105,6 +125,12 @@ def shutdown_executor(wait: bool = False) -> None:
 def _run(job_id: str, url: str, max_pages: int = 50) -> None:
     store = get_store()
     from api.services import progress
+    started = _time.monotonic()
+
+    def _check_deadline(stage: str) -> None:
+        if _time.monotonic() - started > AUDIT_HARD_TIMEOUT_S:
+            raise AuditTimeout(f"Délai dépassé avant l'étape « {stage} »")
+
     progress.add(job_id, f"Audit lancé sur {url} (max {max_pages} pages)")
     # try/finally guarantees we never leave a job in `pending` silently if
     # the thread dies from something unexpected (OSError, MemoryError, ...).
@@ -119,6 +145,7 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
             )
             return
         progress.add(job_id, f"Crawl terminé : {len(crawl_data.pages)} pages analysées")
+        _check_deadline("PageSpeed")
 
         # Enrich with real Core Web Vitals before analysis. Falls back to
         # "unavailable" snapshot if the API key is absent or the call fails.
@@ -152,8 +179,14 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
             }
         )
 
+        _check_deadline("analyse IA")
         progress.add(job_id, "Analyse IA des 6 axes (Gemini)…")
-        audit = analyzer.analyze(crawl_data, on_progress=lambda m: progress.add(job_id, m))
+        deadline_at = started + AUDIT_HARD_TIMEOUT_S
+        audit = analyzer.analyze(
+            crawl_data,
+            on_progress=lambda m: progress.add(job_id, m),
+            deadline_monotonic=deadline_at,
+        )
         progress.add(job_id, "Analyse IA terminée — assemblage du rapport")
         enriched_pages = _merge_page_technical(audit.pages, crawl_data)
         cultural = _build_cultural_audit(crawl_data)
@@ -174,19 +207,32 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
         store.complete_job(job_id, audit, crawl_data)
         progress.add(job_id, "Rapport prêt ✓")
         success = True
+    except AuditTimeout as e:
+        logger.warning("Audit %s timed out: %s", job_id, e)
+        progress.add(job_id, f"Délai dépassé ({AUDIT_HARD_TIMEOUT_S // 60} min) — audit abandonné")
+        store.fail_job(
+            job_id,
+            f"L'audit a dépassé le délai maximum de {AUDIT_HARD_TIMEOUT_S // 60} minutes. "
+            "Réessayez avec moins de pages, ou vérifiez les quotas de l'API Gemini.",
+        )
     except Exception as e:
         logger.exception("Pipeline failed for job %s: %s", job_id, e)
         progress.add(job_id, f"Échec : {e}")
         store.fail_job(job_id, str(e) or e.__class__.__name__)
     finally:
+        with _audit_started_lock:
+            _audit_started_at.pop(job_id, None)
         if not success:
-            job = store.get(job_id)
-            if job is not None and job.status == "pending":
-                # Safety net: thread died before any status write.
-                store.fail_job(
-                    job_id,
-                    "Erreur inattendue lors de l'audit (thread interrompu).",
-                )
+            try:
+                job = store.get(job_id)
+                if job is not None and job.status == "pending":
+                    # Safety net: thread died before any status write.
+                    store.fail_job(
+                        job_id,
+                        "Erreur inattendue lors de l'audit (thread interrompu).",
+                    )
+            except Exception as e:
+                logger.warning("Final safety-net check failed for %s: %s", job_id, e)
 
 
 # ---------------------------------------------------------------------------
