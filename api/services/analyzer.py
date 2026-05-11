@@ -395,20 +395,25 @@ def analyze(
     _sanitize_missing(missing)
 
     # Optional web_search passes — best-effort. We give each a guaranteed small
-    # window (≥45s) regardless of how much core-pass budget was eaten by rate
-    # limits, so they're not silently skipped on every free-tier run; they're
-    # only dropped when the deadline is essentially here (<10s left).
+    # window (≥60s) regardless of how much core-pass budget was eaten by rate
+    # limits. Visibility ALWAYS produces something (offline fallback) so the
+    # section never disappears.
     time.sleep(INTER_CALL_DELAY_S)
     OPT_MIN_S, OPT_MAX_S = 60.0, 130.0
+    _p("Estimation de visibilité organique…")
     if _budget(0.0) > 10:
-        _p("Estimation de visibilité organique (recherche web)…")
         vbudget = max(OPT_MIN_S, min(OPT_MAX_S, _budget(OPT_MAX_S)))
         visibility = _time_boxed(lambda: _run_visibility_estimate(crawl, pages), vbudget, "visibility")
-        if visibility is None:
-            _p("Estimation de visibilité ignorée (délai/erreur)")
     else:
         visibility = None
-        _p("Estimation de visibilité ignorée (délai global atteint)")
+    if visibility is None:
+        # Timed out or deadline reached — still ship the offline estimate.
+        _p("Estimation de visibilité : version hors-ligne (délai dépassé)")
+        try:
+            visibility = _visibility_fallback(crawl, pages)
+        except Exception as e:
+            logger.warning("Visibility offline fallback failed: %s", e)
+            visibility = None
     if _budget(0.0) > 10:
         _p("Analyse SXO (type de page vs SERP)…")
         sbudget = max(OPT_MIN_S, min(OPT_MAX_S, _budget(OPT_MAX_S)))
@@ -790,50 +795,74 @@ Tu peux utiliser web_search pour vérifier des ordres de grandeur (volumes de re
 </VISIBILITY_JSON>"""
 
 
-def _run_visibility_estimate(crawl: CrawlData, pages: list[dict]) -> Optional[dict]:
-    """SEMrush-style organic visibility estimate. LLM + web_search, best-effort.
-    Returns a dict matching VisibilityEstimate, or None on failure."""
-    themes = "\n".join(
-        f"  - {p.title or p.h1 or p.url}" for p in crawl.pages[:25]
-    ) or "  (aucun)"
-    kw_set: list[str] = []
+def _collect_observed_keywords(crawl: CrawlData, pages: list[dict]) -> list[tuple[str, str]]:
+    """Keywords observed on the site, paired with the page they were seen on.
+    Falls back to titles/H1 of important pages when no targetKeywords."""
     seen: set[str] = set()
+    out: list[tuple[str, str]] = []
     for p in pages:
-        for k in (p.get("targetKeywords") or []):
+        url = p.get("url", "") if isinstance(p, dict) else ""
+        for k in (p.get("targetKeywords") or []) if isinstance(p, dict) else []:
             kl = str(k).strip().lower()
             if kl and kl not in seen:
                 seen.add(kl)
-                kw_set.append(str(k).strip())
-    target_keywords = "\n".join(f"  - {k}" for k in kw_set[:40]) or "  (aucun observé)"
-    prompt = _VISIBILITY_TEMPLATE.format(
-        domain=crawl.domain,
-        page_count=len(crawl.pages),
-        themes=themes,
-        target_keywords=target_keywords,
-    )
-    try:
-        response = get_llm_client().generate(
-            system=_SYSTEM,
-            user_prompt=prompt,
-            max_tokens=6000,
-            enable_web_search=True,
-        )
-        payload = _extract_json(
-            response, tag="VISIBILITY_JSON", context=crawl.domain,
-        )
-    except Exception as e:
-        logger.warning("Visibility estimate failed for %s: %s", crawl.domain, e)
-        return None
-    if not isinstance(payload, dict):
-        return None
+                out.append((str(k).strip(), url))
+    if not out:
+        # No target keywords — derive candidates from page titles/H1.
+        for cp in crawl.pages[:20]:
+            cand = (cp.h1 or cp.title or "").strip()
+            cl = cand.lower()
+            if cand and cl not in seen and len(cand) <= 80:
+                seen.add(cl)
+                out.append((cand, cp.url))
+    return out[:40]
 
+
+def _visibility_fallback(crawl: CrawlData, pages: list[dict]) -> dict:
+    """A deterministic, no-LLM visibility estimate so the section always
+    renders. Numbers are deliberately absent (we can't guess them offline);
+    keywords come straight from the crawl."""
+    kws = _collect_observed_keywords(crawl, pages)
+    n_pages = len(crawl.pages)
+    top = [
+        {
+            "keyword": kw,
+            "estimatedMonthlyVolume": None,
+            "estimatedPosition": None,
+            "rankingUrl": url or crawl.url,
+            "intent": "",
+            "note": "Observé sur la page (estimation hors-ligne, pas de données SERP)",
+        }
+        for kw, url in kws[:15]
+    ]
+    return {
+        "disclaimer": (
+            "Estimation hors-ligne (la recherche web n'a pas pu être réalisée). "
+            "Mots-clés issus du contenu du site ; aucun chiffre de volume/position "
+            "fiable disponible — relancez l'audit pour une estimation enrichie."
+        ),
+        "estimatedMonthlyOrganicTraffic": None,
+        "trafficRange": "",
+        "estimatedRankingKeywordsCount": None,
+        "topKeywords": top,
+        "opportunities": [],
+        "competitorsLikelyOutranking": [],
+        "summary": (
+            f"Site de {n_pages} page(s). Thématiques détectées : "
+            + ", ".join(kw for kw, _ in kws[:6])
+            + ("…" if len(kws) > 6 else "")
+            + "." if kws else "Pas de mots-clés clairs détectés dans le contenu."
+        ),
+    }
+
+
+def _sanitize_visibility(payload: dict) -> dict:
     def _clamp_int(v, lo=0, hi=10_000_000):
         try:
             n = int(v)
         except (TypeError, ValueError):
             return None
         return max(lo, min(hi, n))
-
     payload["estimatedMonthlyOrganicTraffic"] = _clamp_int(
         payload.get("estimatedMonthlyOrganicTraffic")
     )
@@ -848,6 +877,50 @@ def _run_visibility_estimate(crawl: CrawlData, pages: list[dict]) -> Optional[di
         if isinstance(k, dict):
             k["estimatedMonthlyVolume"] = _clamp_int(k.get("estimatedMonthlyVolume"))
     return payload
+
+
+def _run_visibility_estimate(crawl: CrawlData, pages: list[dict]) -> dict:
+    """Organic visibility estimate. Tries web_search; on failure retries
+    without it; on failure again returns a deterministic offline fallback.
+    ALWAYS returns a non-None dict so the section renders."""
+    themes = "\n".join(
+        f"  - {p.title or p.h1 or p.url}" for p in crawl.pages[:25]
+    ) or "  (aucun)"
+    kws = _collect_observed_keywords(crawl, pages)
+    target_keywords = "\n".join(f"  - {k}" for k, _ in kws) or "  (aucun observé)"
+    prompt = _VISIBILITY_TEMPLATE.format(
+        domain=crawl.domain,
+        page_count=len(crawl.pages),
+        themes=themes,
+        target_keywords=target_keywords,
+    )
+
+    for use_web in (True, False):
+        try:
+            response = get_llm_client().generate(
+                system=_SYSTEM, user_prompt=prompt, max_tokens=6000,
+                enable_web_search=use_web,
+            )
+            payload = _extract_json(response, tag="VISIBILITY_JSON", context=crawl.domain)
+            if isinstance(payload, dict) and (payload.get("topKeywords") or payload.get("opportunities")):
+                if not use_web:
+                    payload.setdefault(
+                        "disclaimer",
+                        "Estimation IA sans recherche web (la recherche n'a pas abouti) — "
+                        "chiffres encore plus indicatifs que d'habitude.",
+                    )
+                return _sanitize_visibility(payload)
+            logger.warning(
+                "Visibility pass (web=%s) returned empty payload for %s",
+                use_web, crawl.domain,
+            )
+        except Exception as e:
+            logger.warning(
+                "Visibility pass (web=%s) failed for %s: %s", use_web, crawl.domain, e
+            )
+
+    logger.info("Visibility: using offline fallback for %s", crawl.domain)
+    return _visibility_fallback(crawl, pages)
 
 
 _SXO_TEMPLATE = """Audit SXO (Search Experience Optimization) pour {domain}.
