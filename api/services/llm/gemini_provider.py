@@ -48,6 +48,7 @@ class GeminiProvider(LLMClient):
         user_prompt: str,
         max_tokens: int,
         enable_web_search: bool = True,
+        temperature: float = 0.0,
     ) -> LLMResponse:
         tools: list[genai_types.Tool] = []
         if enable_web_search:
@@ -56,7 +57,7 @@ class GeminiProvider(LLMClient):
         config = genai_types.GenerateContentConfig(
             system_instruction=system,
             max_output_tokens=max_tokens,
-            temperature=0.3,
+            temperature=max(0.0, float(temperature)),
             tools=tools or None,
         )
 

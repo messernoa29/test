@@ -449,13 +449,33 @@ def analyze(
 
     crawl_json = _compact_crawl(crawl)
 
+    # Deterministic base scores from the crawl facts — makes the audit
+    # reproducible. The LLM gets these and may adjust each by ±10.
+    from api.services import scoring as _scoring
+    try:
+        base_scores = _scoring.compute_axis_scores(crawl)
+    except Exception as e:
+        logger.warning("Base score computation failed: %s", e)
+        base_scores = None
+
     # Core passes (overview + per-page + missing) are required — wrap each in a
     # generous time box so a single stuck Gemini call can't hang the worker.
     _p("Vue d'ensemble : scoring des 6 axes…")
-    overview = _time_boxed(lambda: _run_overview(crawl, crawl_json, pblock), _budget(180), "overview")
+    overview = _time_boxed(
+        lambda: _run_overview(crawl, crawl_json, pblock, base_scores), _budget(180), "overview"
+    )
     if not isinstance(overview, dict):
         raise ValueError("Overview pass failed or timed out")
     _sanitize_sections(overview)
+    # Clamp the LLM's axis scores to base ± 10 so a hallucinated swing can't get through.
+    if base_scores:
+        llm_scores = overview.get("scores") if isinstance(overview.get("scores"), dict) else {}
+        clamped = _scoring.clamp_to_base(llm_scores, base_scores, delta=10)
+        overview["scores"] = clamped
+        # Keep section-level scores consistent with the axis scores.
+        for sec in overview.get("sections") or []:
+            if isinstance(sec, dict) and sec.get("section") in clamped:
+                sec["score"] = clamped[sec["section"]]
     time.sleep(INTER_CALL_DELAY_S)
 
     selected_count = len(_select_pages_for_detail(crawl)[0])
@@ -515,13 +535,13 @@ def analyze(
     merged.setdefault("domain", crawl.domain)
     merged.setdefault("url", crawl.url)
 
-    # If the model didn't provide a global verdict/score, derive a sane default
-    # from the section scores so the audit remains presentable.
-    if "scores" in merged and isinstance(merged["scores"], dict):
+    # Global score is ALWAYS the mean of the (clamped) axis scores — never the
+    # LLM's own number — so it's reproducible and consistent with the axes.
+    if isinstance(merged.get("scores"), dict):
         scores_vals = [
             v for v in merged["scores"].values() if isinstance(v, (int, float))
         ]
-        if "globalScore" not in merged and scores_vals:
+        if scores_vals:
             merged["globalScore"] = round(sum(scores_vals) / len(scores_vals))
 
     merged.setdefault("globalScore", 50)
@@ -568,7 +588,12 @@ def _count_severity(merged: dict, target: str) -> int:
 # Stages
 
 
-def _run_overview(crawl: CrawlData, crawl_json: str, platform_block: str = "") -> dict:
+def _run_overview(
+    crawl: CrawlData,
+    crawl_json: str,
+    platform_block: str = "",
+    base_scores: Optional[dict] = None,
+) -> dict:
     prompt = _OVERVIEW_TEMPLATE.format(
         domain=crawl.domain,
         url=crawl.url,
@@ -581,12 +606,19 @@ def _run_overview(crawl: CrawlData, crawl_json: str, platform_block: str = "") -
         technical_block=_format_technical(crawl),
         crawl_table_block=_format_technical_crawl(crawl),
     )
+    prefix = ""
     if platform_block:
-        prompt = platform_block + "\n" + prompt
+        prefix += platform_block + "\n"
+    if base_scores:
+        from api.services import scoring as _scoring
+        prefix += _scoring.format_base_scores_block(base_scores) + "\n\n"
+    if prefix:
+        prompt = prefix + prompt
     response = get_llm_client().generate(
         system=_SYSTEM, user_prompt=prompt, max_tokens=16000,
         enable_web_search=False,  # the crawl payload is exhaustive; web_search
                                   # here just adds 30-90s with little upside
+        temperature=0.0,          # reproducible scoring
     )
     return _extract_json(response, tag="OVERVIEW_JSON", context=crawl.domain)
 

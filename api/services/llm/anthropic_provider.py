@@ -53,13 +53,16 @@ class AnthropicProvider(LLMClient):
         user_prompt: str,
         max_tokens: int,
         enable_web_search: bool = True,
+        temperature: float = 0.0,
     ) -> LLMResponse:
         tools = [_WEB_SEARCH_TOOL] if enable_web_search else []
+        temp = max(0.0, float(temperature))
 
         def _call() -> Message:
             return self._client.messages.create(
                 model=self._model,
                 max_tokens=max_tokens,
+                temperature=temp,
                 system=system,
                 tools=tools,  # type: ignore[arg-type]
                 messages=[{"role": "user", "content": user_prompt}],

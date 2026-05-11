@@ -39,5 +39,8 @@ class LLMClient(ABC):
         user_prompt: str,
         max_tokens: int,
         enable_web_search: bool = True,
+        temperature: float = 0.0,
     ) -> LLMResponse:
-        """Run a single generation with optional web search grounding."""
+        """Run a single generation with optional web search grounding.
+        temperature=0 by default so analyses are as reproducible as possible.
+        """
