@@ -518,6 +518,29 @@ class GeoAuditSummary(BaseModel):
     hasLlmsTxt: bool = False
 
 
+class SxoPageVerdict(BaseModel):
+    url: str
+    keyword: str = ""  # the query we evaluated for this page
+    pageType: str = ""  # our classification of the page
+    serpDominantType: str = ""  # type Google mostly ranks for this query
+    match: bool = True  # pageType compatible with serpDominantType?
+    severity: str = "ok"  # "ok" | "info" | "warning" | "critical"
+    recommendation: str = ""
+
+
+class SxoAuditSummary(BaseModel):
+    """Search Experience Optimization — page-type vs SERP-intent mismatch."""
+
+    evaluated: int = 0
+    mismatches: int = 0
+    verdicts: list[SxoPageVerdict] = Field(default_factory=list)
+    note: str = (
+        "Vérifie que le TYPE de page (fiche produit, comparatif, blog, "
+        "service…) correspond à ce que Google récompense pour la requête. "
+        "Évaluation IA + recherche web sur un échantillon de pages."
+    )
+
+
 class ProgrammaticGroup(BaseModel):
     pattern: str  # "/services/{}/{}"
     pageCount: int = 0
@@ -587,6 +610,8 @@ class AuditResult(BaseModel):
     geoAudit: Optional[GeoAuditSummary] = None
     # Programmatic-SEO quality gates (populated by the runner).
     programmaticAudit: Optional[ProgrammaticAuditSummary] = None
+    # SXO page-type-vs-SERP-intent mismatch (LLM + web_search, sampled).
+    sxoAudit: Optional[SxoAuditSummary] = None
 
     @field_validator("globalScore", mode="before")
     @classmethod

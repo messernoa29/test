@@ -1,18 +1,26 @@
 'use client'
 
-import type { VisibilityEstimate } from '@/lib/types'
+import type { SxoAuditSummary, VisibilityEstimate } from '@/lib/types'
 
 interface Props {
   data?: VisibilityEstimate
+  sxo?: SxoAuditSummary
 }
 
-export function VisibilityTab({ data }: Props) {
-  if (!data) {
+export function VisibilityTab({ data, sxo }: Props) {
+  if (!data && !sxo) {
     return (
       <div className="text-sm text-text-tertiary py-8">
         Estimation de visibilité non disponible pour cet audit (audit antérieur
         à cette fonctionnalité, ou l&apos;estimation a échoué — relancez
         l&apos;analyse).
+      </div>
+    )
+  }
+  if (!data) {
+    return (
+      <div className="space-y-6">
+        {sxo && <SxoSection sxo={sxo} />}
       </div>
     )
   }
@@ -22,6 +30,8 @@ export function VisibilityTab({ data }: Props) {
 
   return (
     <div className="space-y-6">
+      {sxo && <SxoSection sxo={sxo} />}
+
       {/* Disclaimer */}
       <div className="px-4 py-2.5 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-xs text-[var(--status-warning-text)]">
         {data.disclaimer}
@@ -204,5 +214,79 @@ function Stat({ label, value }: { label: string; value: string }) {
         {value}
       </div>
     </div>
+  )
+}
+
+function SxoSection({ sxo }: { sxo: SxoAuditSummary }) {
+  const sevColor = (s: string) =>
+    s === 'critical'
+      ? 'text-[var(--status-critical-text)]'
+      : s === 'warning'
+        ? 'text-[var(--status-warning-text)]'
+        : s === 'info'
+          ? 'text-[var(--status-warning-text)]'
+          : 'text-[var(--status-ok-text)]'
+  const sevLabel = (s: string) =>
+    s === 'critical'
+      ? 'Mauvais format'
+      : s === 'warning'
+        ? 'Mismatch'
+        : s === 'info'
+          ? 'Léger écart'
+          : 'OK'
+  return (
+    <section>
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
+        SXO — type de page vs intention SERP
+      </h3>
+      <p className="text-xs text-text-tertiary mb-3">{sxo.note}</p>
+      <div className="mb-3 text-sm">
+        <span className="text-text-secondary">{sxo.evaluated} pages évaluées · </span>
+        <span
+          className={
+            sxo.mismatches > 0
+              ? 'text-[var(--status-warning-text)] font-medium'
+              : 'text-[var(--status-ok-text)] font-medium'
+          }
+        >
+          {sxo.mismatches} mismatch{sxo.mismatches > 1 ? 'es' : ''}
+        </span>
+      </div>
+      {sxo.verdicts.length === 0 ? (
+        <p className="text-xs text-text-tertiary">Aucune page exploitable pour le SXO.</p>
+      ) : (
+        <div className="space-y-2">
+          {sxo.verdicts.map((v, i) => (
+            <div
+              key={i}
+              className="border border-[var(--border-subtle)] rounded-md bg-bg-surface p-3"
+            >
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <a
+                  href={v.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-xs text-text-secondary hover:text-primary break-all"
+                >
+                  {v.url}
+                </a>
+                <span className={`text-xs font-medium ${sevColor(v.severity)}`}>
+                  {sevLabel(v.severity)}
+                </span>
+              </div>
+              <div className="text-[11px] text-text-tertiary mb-1">
+                Requête : « {v.keyword} » · votre page : {v.pageType} · SERP
+                dominante : {v.serpDominantType || '—'}
+              </div>
+              {v.recommendation && (
+                <p className="text-[11px] text-text-secondary">
+                  → {v.recommendation}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }

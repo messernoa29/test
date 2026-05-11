@@ -200,6 +200,24 @@ export interface AuditResult {
   culturalAudit?: CulturalAuditSummary
   geoAudit?: GeoAuditSummary
   programmaticAudit?: ProgrammaticAuditSummary
+  sxoAudit?: SxoAuditSummary
+}
+
+export interface SxoPageVerdict {
+  url: string
+  keyword: string
+  pageType: string
+  serpDominantType: string
+  match: boolean
+  severity: 'ok' | 'info' | 'warning' | 'critical'
+  recommendation: string
+}
+
+export interface SxoAuditSummary {
+  evaluated: number
+  mismatches: number
+  verdicts: SxoPageVerdict[]
+  note: string
 }
 
 export interface ProgrammaticGroup {

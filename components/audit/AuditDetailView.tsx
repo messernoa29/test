@@ -111,7 +111,7 @@ export function AuditDetailView({ audit }: Props) {
           />
         )}
         {active === 'visibility' && (
-          <VisibilityTab data={audit.visibilityEstimate} />
+          <VisibilityTab data={audit.visibilityEstimate} sxo={audit.sxoAudit} />
         )}
         {active === 'geo' && <GeoTab data={audit.geoAudit} />}
         {active === 'missing' && (

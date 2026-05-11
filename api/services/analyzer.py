@@ -351,6 +351,9 @@ def analyze(crawl: CrawlData) -> AuditResult:
     time.sleep(INTER_CALL_DELAY_S)
     visibility = _run_visibility_estimate(crawl, pages)
 
+    time.sleep(INTER_CALL_DELAY_S)
+    sxo = _run_sxo(crawl, pages)
+
     _log_coverage(crawl, pages)
 
     merged: dict = dict(overview)
@@ -358,6 +361,8 @@ def analyze(crawl: CrawlData) -> AuditResult:
     merged["missingPages"] = missing
     if visibility is not None:
         merged["visibilityEstimate"] = visibility
+    if sxo is not None:
+        merged["sxoAudit"] = sxo
     merged.setdefault("id", uuid.uuid4().hex)
     merged.setdefault("createdAt", datetime.now(timezone.utc).isoformat())
     merged.setdefault("domain", crawl.domain)
@@ -629,6 +634,128 @@ def _run_visibility_estimate(crawl: CrawlData, pages: list[dict]) -> Optional[di
         if isinstance(k, dict):
             k["estimatedMonthlyVolume"] = _clamp_int(k.get("estimatedMonthlyVolume"))
     return payload
+
+
+_SXO_TEMPLATE = """Audit SXO (Search Experience Optimization) pour {domain}.
+
+Pour chaque page ci-dessous, on te donne : son URL, son type (notre classification : homepage/article/product/service/localBusiness/faq/contact/about/category/other), son title/H1, et son mot-clé cible principal.
+
+Ta tâche : pour chaque page, utilise web_search sur le mot-clé cible et regarde la SERP Google. Détermine le TYPE de page DOMINANT que Google récompense (ex: 8 fiches produit sur 10 résultats → "product" ; 6 articles de blog → "article" ; 5 pages comparatives → "comparison" ; pages locales → "localBusiness"). Compare avec le type de la page. Si mismatch, c'est une cause majeure de mauvais classement non détectable par un audit technique classique.
+
+Types SERP autorisés : homepage, article, product, service, localBusiness, faq, contact, about, category, comparison, listicle, tool, other.
+
+## Pages à évaluer
+{pages_block}
+
+## Pour chaque page, produis
+- url
+- keyword : le mot-clé évalué
+- pageType : le type qu'on t'a donné (recopie-le)
+- serpDominantType : le type dominant observé dans la SERP
+- match : true si pageType est compatible avec serpDominantType, false sinon
+- severity : "ok" si match | "info" si léger écart | "warning" si vrai mismatch | "critical" si la page est totalement le mauvais format
+- recommendation : 1 phrase concrète ("Restructurer en page comparative : tableau de X vs Y avec critères et prix" plutôt que "améliorer la page")
+
+## Discipline
+- Si tu n'as pas de signal SERP fiable (pas de mot-clé exploitable, requête trop ambiguë), mets severity="ok", match=true, et recommendation="Audit SERP manuel requis".
+- N'invente pas un mismatch s'il n'y en a pas.
+
+## Sortie STRICTE (aucun texte hors balises)
+
+<SXO_JSON>
+{{
+  "verdicts": [
+    {{"url": "...", "keyword": "...", "pageType": "...", "serpDominantType": "...", "match": true, "severity": "ok", "recommendation": "..."}}
+  ]
+}}
+</SXO_JSON>"""
+
+_SXO_MAX_PAGES = 8
+
+
+def _run_sxo(crawl: CrawlData, pages: list[dict]) -> Optional[dict]:
+    """Page-type vs SERP-intent mismatch on a sample of important pages.
+    LLM + web_search, best-effort. Returns dict matching SxoAuditSummary or None."""
+    from api.services import page_classifier
+
+    if not pages and not crawl.pages:
+        return None
+
+    # Build candidate list: prefer pages with a target keyword, then hubs,
+    # then anything. We need page_type for each — classify on the fly.
+    crawl_by_url = {p.url: p for p in (crawl.pages or [])}
+    hub_urls = set(crawl.linkGraph.hubPages) if crawl.linkGraph else set()
+    home_url = crawl.url
+
+    candidates: list[dict] = []
+    for pa in pages:
+        cp = crawl_by_url.get(pa.get("url") if isinstance(pa, dict) else getattr(pa, "url", None))
+        url = pa["url"] if isinstance(pa, dict) else getattr(pa, "url", "")
+        title = pa.get("title", "") if isinstance(pa, dict) else getattr(pa, "title", "")
+        h1 = pa.get("h1", "") if isinstance(pa, dict) else getattr(pa, "h1", "")
+        kws = pa.get("targetKeywords", []) if isinstance(pa, dict) else getattr(pa, "targetKeywords", [])
+        keyword = kws[0] if kws else (title or h1)
+        if not keyword:
+            continue
+        ptype = page_classifier.classify_page(
+            url=url, title=title, h1=h1,
+            headings=(cp.headings if cp else []),
+            text_snippet=(cp.textSnippet if cp else ""),
+            schemas=([s.type for s in cp.schemas] if cp and cp.schemas else []),
+            word_count=(cp.wordCount if cp else 0),
+            is_homepage=(url == home_url),
+        )
+        priority = 0
+        if url in hub_urls:
+            priority += 2
+        if kws:
+            priority += 1
+        candidates.append({
+            "url": url, "title": title, "h1": h1, "keyword": keyword,
+            "pageType": ptype, "_priority": priority,
+        })
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: -c["_priority"])
+    sample = candidates[:_SXO_MAX_PAGES]
+
+    pages_block = "\n".join(
+        f"- url: {c['url']}\n  type: {c['pageType']}\n  title: {c['title'][:120]}\n  mot-clé cible: {c['keyword']}"
+        for c in sample
+    )
+    prompt = _SXO_TEMPLATE.format(domain=crawl.domain, pages_block=pages_block)
+    try:
+        response = get_llm_client().generate(
+            system=_SYSTEM, user_prompt=prompt, max_tokens=4000,
+            enable_web_search=True,
+        )
+        payload = _extract_json(response, tag="SXO_JSON", context=crawl.domain)
+    except Exception as e:
+        logger.warning("SXO pass failed for %s: %s", crawl.domain, e)
+        return None
+    if not isinstance(payload, dict):
+        return None
+    verdicts = payload.get("verdicts") or []
+    if not isinstance(verdicts, list):
+        return None
+    # Light sanitization.
+    valid_sev = {"ok", "info", "warning", "critical"}
+    clean: list[dict] = []
+    for v in verdicts:
+        if not isinstance(v, dict):
+            continue
+        sev = str(v.get("severity", "ok")).lower()
+        if sev not in valid_sev:
+            sev = "info"
+        v["severity"] = sev
+        v["match"] = bool(v.get("match", sev == "ok"))
+        clean.append(v)
+    mismatches = sum(1 for v in clean if not v.get("match"))
+    return {
+        "evaluated": len(clean),
+        "mismatches": mismatches,
+        "verdicts": clean,
+    }
 
 
 # ---------------------------------------------------------------------------

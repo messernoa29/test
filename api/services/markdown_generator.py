@@ -200,6 +200,26 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
         for p in audit.pages:
             L.extend(_page_block(p))
 
+    # SXO — page-type vs SERP-intent
+    sxo = audit.sxoAudit
+    if sxo is not None and sxo.verdicts:
+        L.append("## SXO — type de page vs intention SERP")
+        L.append("")
+        L.append(sxo.note)
+        L.append("")
+        L.append(f"{sxo.evaluated} pages évaluées · {sxo.mismatches} mismatch(es)")
+        L.append("")
+        for v in sxo.verdicts:
+            sev_lbl = {"ok": "OK", "info": "Léger écart", "warning": "Mismatch", "critical": "Mauvais format"}.get(v.severity, v.severity)
+            L.append(f"### `{v.url}` — {sev_lbl}")
+            L.append(
+                f"- Requête : « {v.keyword} » · votre page : {v.pageType} · "
+                f"SERP dominante : {v.serpDominantType or '—'}"
+            )
+            if v.recommendation:
+                L.append(f"  - [ ] {v.recommendation}")
+            L.append("")
+
     # Programmatic SEO quality gates
     pg = audit.programmaticAudit
     if pg is not None and pg.isProgrammatic:
