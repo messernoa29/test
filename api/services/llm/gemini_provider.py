@@ -33,7 +33,13 @@ class GeminiProvider(LLMClient):
     def __init__(self) -> None:
         settings = get_settings()
         self._model = settings.gemini_model
-        self._client = genai.Client(api_key=settings.gemini_api_key)
+        # Per-request HTTP timeout — the SDK has none by default, so a stalled
+        # connection would hang a worker thread forever. 120s is plenty for a
+        # generate call (web_search ones included).
+        self._client = genai.Client(
+            api_key=settings.gemini_api_key,
+            http_options=genai_types.HttpOptions(timeout=120_000),  # ms
+        )
 
     def generate(
         self,
