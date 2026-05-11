@@ -58,8 +58,35 @@ export function AuditPendingView({ initial }: Props) {
     return <FailedView job={job} />
   }
 
-  // Approximation: crawl ~60s (50 pages parallèles), analyse LLM ~3-5min, finalisation
-  const activeIdx = elapsed < 60 ? 0 : elapsed < 240 ? 1 : 2
+  // Derive the active step from the real progress log (not elapsed time):
+  //   0 = crawl, 1 = analyse IA, 2 = finalisation
+  const lastMsg = (logs[logs.length - 1]?.msg ?? '').toLowerCase()
+  let activeIdx = 0
+  if (lastMsg) {
+    if (
+      lastMsg.includes('assemblage') ||
+      lastMsg.includes('rapport prêt') ||
+      lastMsg.includes('rapport pret')
+    ) {
+      activeIdx = 2
+    } else if (
+      lastMsg.includes('analyse ia') ||
+      lastMsg.includes('vue d') ||
+      lastMsg.includes('page par page') ||
+      lastMsg.includes('pages : lot') ||
+      lastMsg.includes('pages manquantes') ||
+      lastMsg.includes('visibilité') ||
+      lastMsg.includes('visibilite') ||
+      lastMsg.includes('sxo')
+    ) {
+      activeIdx = 1
+    } else {
+      activeIdx = 0 // crawl / pagespeed
+    }
+  } else {
+    // No log yet — fall back to a coarse time estimate.
+    activeIdx = elapsed < 60 ? 0 : elapsed < 240 ? 1 : 2
+  }
 
   const minutes = Math.floor(elapsed / 60)
   const seconds = elapsed % 60

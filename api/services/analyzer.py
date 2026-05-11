@@ -538,20 +538,67 @@ def _run_pages_batched(
         if payload is None:
             _p(f"Pages : lot {i}/{len(batches)} — nouvelle tentative")
             time.sleep(5)
-            payload = _run_single_pages_batch(
-                crawl.domain, batch, attempt=2, raise_on_fail=True,
-            )
-        assert payload is not None
-        batch_pages = payload.get("pages") or []
-        if not isinstance(batch_pages, list):
-            raise ValueError(
-                f"Batch {i}/{len(batches)} returned 'pages' that is not a list"
-            )
+            payload = _run_single_pages_batch(crawl.domain, batch, attempt=2)
+
+        batch_pages: list = []
+        if payload is not None:
+            bp = payload.get("pages")
+            if isinstance(bp, list):
+                batch_pages = bp
+            else:
+                logger.warning("Batch %d/%d: 'pages' not a list — falling back", i, len(batches))
+
+        # If the whole-batch call failed (or returned junk), try one page at a
+        # time so a single bad page doesn't lose the other 9. Any page that
+        # still can't be analysed gets a minimal placeholder rather than
+        # aborting the entire audit.
+        if not batch_pages and len(batch) > 1:
+            _p(f"Pages : lot {i}/{len(batches)} — analyse page par page")
+            for p in batch:
+                single = _run_single_pages_batch(crawl.domain, [p], attempt=1)
+                if single and isinstance(single.get("pages"), list) and single["pages"]:
+                    batch_pages.extend(single["pages"])
+                else:
+                    batch_pages.append(_placeholder_page(p))
+                time.sleep(1)
+        elif not batch_pages and len(batch) == 1:
+            batch_pages = [_placeholder_page(batch[0])]
+
         all_pages.extend(batch_pages)
         if i < len(batches):
             time.sleep(INTER_CALL_DELAY_S)
 
     return all_pages
+
+
+def _placeholder_page(p: CrawlPage) -> dict:
+    """Minimal PageAnalysis dict for a page the LLM couldn't analyse, so the
+    audit ships with a complete page list instead of failing."""
+    return {
+        "url": p.url,
+        "status": "warning",
+        "title": p.title or "",
+        "titleLength": len(p.title or ""),
+        "h1": p.h1 or "",
+        "metaDescription": p.metaDescription,
+        "metaLength": len(p.metaDescription or "") if p.metaDescription else 0,
+        "targetKeywords": [],
+        "presentKeywords": [],
+        "missingKeywords": [],
+        "findings": [
+            {
+                "severity": "info",
+                "title": "Page non analysée en détail",
+                "description": (
+                    "L'analyse IA détaillée de cette page n'a pas pu aboutir "
+                    "(quota/erreur API). Les données techniques du crawl restent "
+                    "disponibles ci-dessous."
+                ),
+                "actions": ["Relancer l'audit pour obtenir l'analyse détaillée de cette page"],
+            }
+        ],
+        "recommendation": None,
+    }
 
 
 def _run_single_pages_batch(
