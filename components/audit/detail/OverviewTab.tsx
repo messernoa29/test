@@ -1,21 +1,24 @@
 'use client'
 
-import type { AuditResult, AuditSection } from '@/lib/types'
+import { useState } from 'react'
+import type { AuditResult, Finding, SectionResult } from '@/lib/types'
 import { ScoreBar } from '@/components/ui/ScoreBar'
 import { scoreHexColor } from '@/lib/design'
+import { FindingRow } from '../FindingRow'
 import { MiniStat, SectionHeader } from './shared'
 
-export function OverviewTab({
-  audit,
-  onOpenSection,
-}: {
-  audit: AuditResult
-  onOpenSection: (section: AuditSection) => void
-}) {
+const actionable = (findings: Finding[]): Finding[] =>
+  findings.filter((f) => f.severity === 'critical' || f.severity === 'warning')
+
+export function OverviewTab({ audit }: { audit: AuditResult }) {
   const wins = (audit.quickWins ?? []).filter(
     (w): w is string => typeof w === 'string' && w.trim().length > 0,
   )
   const cov = audit.crawlCoverage
+  // Sections worth showing: at least one actionable finding.
+  const sections = audit.sections.filter((s) => actionable(s.findings).length > 0)
+  const cleanSections = audit.sections.filter((s) => actionable(s.findings).length === 0)
+
   return (
     <div className="space-y-10">
       {cov && cov.requestedMaxPages > 0 && (
@@ -43,6 +46,7 @@ export function OverviewTab({
               : ''}
         </div>
       )}
+
       <section className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4 items-start">
         <div className="bg-bg-surface border border-[var(--border-subtle)] rounded-md p-5">
           <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary mb-3">
@@ -69,44 +73,6 @@ export function OverviewTab({
         </div>
       </section>
 
-      <section>
-        <SectionHeader title="Scores par domaine" sub="6 axes analysés" />
-        <div className="border border-[var(--border-subtle)] rounded-md overflow-hidden bg-bg-surface">
-          <div className="grid grid-cols-[1.4fr_70px_1fr_1.8fr_90px] bg-bg-elevated border-b border-[var(--border-subtle)]">
-            {['Axe', 'Score', 'Progression', 'Verdict', 'Points'].map((h) => (
-              <div
-                key={h}
-                className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary px-4 py-2.5"
-              >
-                {h}
-              </div>
-            ))}
-          </div>
-          {audit.sections.map((s) => (
-            <button
-              key={s.section}
-              onClick={() => onOpenSection(s.section)}
-              className="w-full grid grid-cols-[1.4fr_70px_1fr_1.8fr_90px] border-b border-[var(--border-subtle)] last:border-0 items-center hover:bg-bg-elevated text-left transition-colors"
-            >
-              <div className="text-sm font-medium text-text-primary px-4 py-3">{s.title}</div>
-              <div
-                className="text-lg font-semibold tabular-nums leading-none px-4 py-3"
-                style={{ color: scoreHexColor(s.score) }}
-              >
-                {s.score}
-              </div>
-              <div className="px-4 py-3">
-                <ScoreBar score={s.score} height={6} />
-              </div>
-              <div className="text-xs text-text-secondary px-4 py-3 leading-snug">{s.verdict}</div>
-              <div className="text-xs tabular-nums text-text-secondary px-4 py-3">
-                {s.findings.length}
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
-
       {wins.length > 0 && (
         <section>
           <SectionHeader title="Quick wins" sub="Actions à haute priorité" />
@@ -124,6 +90,102 @@ export function OverviewTab({
             ))}
           </div>
         </section>
+      )}
+
+      <section>
+        <SectionHeader
+          title="Recommandations par axe"
+          sub="Cliquez sur un axe pour dérouler les actions à faire"
+        />
+        {sections.length === 0 ? (
+          <div className="border border-dashed border-[var(--border-default)] rounded-md p-8 text-center text-sm text-text-tertiary bg-bg-surface">
+            Aucune recommandation actionnable — le site est globalement sain sur les 6 axes.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sections.map((s) => (
+              <AxisAccordion key={s.section} section={s} defaultOpen={sections.length <= 2} />
+            ))}
+          </div>
+        )}
+        {cleanSections.length > 0 && (
+          <p className="mt-3 text-xs text-text-tertiary">
+            Axes sans point à corriger :{' '}
+            {cleanSections.map((s) => s.title).join(', ')}.
+          </p>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function AxisAccordion({
+  section,
+  defaultOpen = false,
+}: {
+  section: SectionResult
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  const acts = actionable(section.findings)
+  const crit = acts.filter((f) => f.severity === 'critical').length
+  const warn = acts.filter((f) => f.severity === 'warning').length
+  // Show actionable findings first, then any "ok"/"info" notes.
+  const ordered = [
+    ...acts,
+    ...section.findings.filter((f) => f.severity !== 'critical' && f.severity !== 'warning'),
+  ]
+  return (
+    <div className="border border-[var(--border-subtle)] rounded-md bg-bg-surface overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-4 px-5 py-3.5 text-left hover:bg-bg-elevated transition-colors"
+      >
+        <span
+          className="text-2xl font-semibold tabular-nums leading-none w-12 text-center flex-shrink-0"
+          style={{ color: scoreHexColor(section.score) }}
+        >
+          {section.score}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-text-primary">{section.title}</span>
+          <span className="block text-xs text-text-secondary leading-snug mt-0.5">
+            {section.verdict}
+          </span>
+        </span>
+        <span className="flex items-center gap-2 flex-shrink-0 text-xs">
+          {crit > 0 && (
+            <span className="px-1.5 py-0.5 rounded bg-[var(--status-critical-bg)] text-[var(--status-critical-text)] tabular-nums">
+              {crit} critique{crit > 1 ? 's' : ''}
+            </span>
+          )}
+          {warn > 0 && (
+            <span className="px-1.5 py-0.5 rounded bg-[var(--status-warning-bg)] text-[var(--status-warning-text)] tabular-nums">
+              {warn} à corriger
+            </span>
+          )}
+        </span>
+        <span
+          className="text-text-tertiary transition-transform flex-shrink-0"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0)' }}
+        >
+          ›
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-[var(--border-subtle)]">
+          <div className="grid grid-cols-[40px_140px_1fr_100px_100px_24px] gap-3 px-4 py-2.5 bg-bg-elevated text-[11px] uppercase tracking-wider font-medium text-text-tertiary">
+            <div>#</div>
+            <div>Sévérité</div>
+            <div>Point</div>
+            <div>Impact</div>
+            <div>Effort</div>
+            <div />
+          </div>
+          {ordered.map((f, i) => (
+            <FindingRow key={i} finding={f} index={i} />
+          ))}
+        </div>
       )}
     </div>
   )
