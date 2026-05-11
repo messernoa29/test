@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import type {
   CulturalAuditSummary,
+  ProgrammaticAuditSummary,
   TechnicalCrawlSummary,
   TechnicalPageRow,
 } from '@/lib/types'
@@ -10,11 +11,12 @@ import type {
 interface Props {
   data?: TechnicalCrawlSummary
   cultural?: CulturalAuditSummary
+  programmatic?: ProgrammaticAuditSummary
 }
 
 type StatusFilter = 'all' | '2xx' | '3xx' | '4xx' | '5xx' | 'issues'
 
-export function TechnicalCrawlTab({ data, cultural }: Props) {
+export function TechnicalCrawlTab({ data, cultural, programmatic }: Props) {
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
@@ -165,7 +167,70 @@ export function TechnicalCrawlTab({ data, cultural }: Props) {
       {cultural?.isMultilingual && (
         <CulturalSection cultural={cultural} />
       )}
+
+      {/* Programmatic SEO quality gates */}
+      {programmatic?.isProgrammatic && (
+        <ProgrammaticSection programmatic={programmatic} />
+      )}
     </div>
+  )
+}
+
+function ProgrammaticSection({
+  programmatic,
+}: {
+  programmatic: ProgrammaticAuditSummary
+}) {
+  const gateColor = (g: string) =>
+    g === 'PASS'
+      ? 'text-[var(--status-ok-text)]'
+      : g === 'WARNING'
+        ? 'text-[var(--status-warning-text)]'
+        : 'text-[var(--status-critical-text)]'
+  const gateLabel = (g: string) =>
+    g === 'PASS' ? 'OK' : g === 'WARNING' ? 'À renforcer' : 'Risque pénalité'
+  return (
+    <section>
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
+        Pages générées en masse (quality gates)
+      </h3>
+      <p className="text-xs text-text-tertiary mb-3">
+        Groupes d&apos;URLs au même motif (pages ville, fiches templatées…).
+        Google sanctionne le contenu généré à grande échelle sans valeur propre
+        (Scaled Content Abuse, mars 2024).
+      </p>
+      <div className="space-y-3">
+        {programmatic.groups.map((g) => (
+          <div
+            key={g.pattern}
+            className="border border-[var(--border-subtle)] rounded-md bg-bg-surface p-3"
+          >
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <code className="text-xs text-text-primary">{g.pattern}</code>
+              <span className={`text-xs font-medium ${gateColor(g.gate)}`}>
+                {gateLabel(g.gate)}
+              </span>
+            </div>
+            <div className="text-[11px] text-text-tertiary mb-1.5">
+              {g.pageCount} pages · ~{g.avgWordCount} mots/page · contenu unique
+              estimé {Math.round(g.uniquenessRatio * 100)}% (boilerplate{' '}
+              {Math.round(g.boilerplateRatio * 100)}%)
+            </div>
+            {g.notes.length > 0 && (
+              <ul className="space-y-0.5 text-[11px] text-text-secondary mb-1.5">
+                {g.notes.map((n, i) => (
+                  <li key={i}>· {n}</li>
+                ))}
+              </ul>
+            )}
+            <div className="text-[10px] font-mono text-text-tertiary break-all">
+              {g.sampleUrls.slice(0, 4).join(' · ')}
+              {g.sampleUrls.length > 4 && ' …'}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

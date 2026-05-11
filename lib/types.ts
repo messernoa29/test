@@ -199,6 +199,23 @@ export interface AuditResult {
   visibilityEstimate?: VisibilityEstimate
   culturalAudit?: CulturalAuditSummary
   geoAudit?: GeoAuditSummary
+  programmaticAudit?: ProgrammaticAuditSummary
+}
+
+export interface ProgrammaticGroup {
+  pattern: string
+  pageCount: number
+  sampleUrls: string[]
+  uniquenessRatio: number
+  boilerplateRatio: number
+  avgWordCount: number
+  gate: 'PASS' | 'WARNING' | 'HARD_STOP'
+  notes: string[]
+}
+
+export interface ProgrammaticAuditSummary {
+  isProgrammatic: boolean
+  groups: ProgrammaticGroup[]
 }
 
 export interface GeoPageScore {

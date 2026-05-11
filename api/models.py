@@ -518,6 +518,24 @@ class GeoAuditSummary(BaseModel):
     hasLlmsTxt: bool = False
 
 
+class ProgrammaticGroup(BaseModel):
+    pattern: str  # "/services/{}/{}"
+    pageCount: int = 0
+    sampleUrls: list[str] = Field(default_factory=list)
+    uniquenessRatio: float = 0.0  # 0-1, higher = more unique per page
+    boilerplateRatio: float = 0.0  # 0-1, shared template content
+    avgWordCount: int = 0
+    gate: str = "PASS"  # "PASS" | "WARNING" | "HARD_STOP"
+    notes: list[str] = Field(default_factory=list)
+
+
+class ProgrammaticAuditSummary(BaseModel):
+    """Quality gates for templated/programmatic page sets."""
+
+    isProgrammatic: bool = False
+    groups: list[ProgrammaticGroup] = Field(default_factory=list)
+
+
 class CulturalPageIssue(BaseModel):
     url: str
     locale: str
@@ -567,6 +585,8 @@ class AuditResult(BaseModel):
     culturalAudit: Optional[CulturalAuditSummary] = None
     # GEO (AI-citability) audit (populated by the runner).
     geoAudit: Optional[GeoAuditSummary] = None
+    # Programmatic-SEO quality gates (populated by the runner).
+    programmaticAudit: Optional[ProgrammaticAuditSummary] = None
 
     @field_validator("globalScore", mode="before")
     @classmethod

@@ -107,6 +107,7 @@ export function AuditDetailView({ audit }: Props) {
           <TechnicalCrawlTab
             data={audit.technicalCrawl}
             cultural={audit.culturalAudit}
+            programmatic={audit.programmaticAudit}
           />
         )}
         {active === 'visibility' && (

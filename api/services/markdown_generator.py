@@ -200,6 +200,30 @@ def generate_markdown(audit: AuditResult, *, agency_name: str | None = None) -> 
         for p in audit.pages:
             L.extend(_page_block(p))
 
+    # Programmatic SEO quality gates
+    pg = audit.programmaticAudit
+    if pg is not None and pg.isProgrammatic:
+        L.append("## Pages générées en masse (quality gates)")
+        L.append("")
+        L.append(
+            "Google sanctionne le contenu généré à grande échelle sans valeur "
+            "propre (Scaled Content Abuse, mars 2024)."
+        )
+        L.append("")
+        for g in pg.groups:
+            gate_lbl = {"PASS": "OK", "WARNING": "À renforcer", "HARD_STOP": "Risque pénalité"}.get(g.gate, g.gate)
+            L.append(f"### `{g.pattern}` — {gate_lbl}")
+            L.append(
+                f"- {g.pageCount} pages · ~{g.avgWordCount} mots/page · "
+                f"contenu unique estimé {round(g.uniquenessRatio * 100)}% "
+                f"(boilerplate {round(g.boilerplateRatio * 100)}%)"
+            )
+            for n in g.notes:
+                L.append(f"  - [ ] {n}")
+            if g.sampleUrls:
+                L.append(f"- Exemples : {', '.join(g.sampleUrls[:4])}")
+            L.append("")
+
     # GEO (AI citability)
     geo = audit.geoAudit
     if geo is not None:

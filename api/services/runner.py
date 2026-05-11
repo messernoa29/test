@@ -105,6 +105,7 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
         enriched_pages = _merge_page_technical(audit.pages, crawl_data)
         cultural = _build_cultural_audit(crawl_data)
         geo = _build_geo_audit(crawl_data)
+        programmatic = _build_programmatic_audit(crawl_data)
         audit = audit.model_copy(
             update={
                 "id": job_id,
@@ -112,6 +113,7 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
                 "pages": enriched_pages,
                 "culturalAudit": cultural,
                 "geoAudit": geo,
+                "programmaticAudit": programmatic,
             }
         )
         if audit.domain:
@@ -581,4 +583,20 @@ def _build_geo_audit(crawl_data):
         siteWeaknesses=site_weak,
         aiCrawlerStatus=ai_status,
         hasLlmsTxt=bool(crawl_data.hasLlmsTxt),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Programmatic-SEO quality gates
+
+
+def _build_programmatic_audit(crawl_data):
+    from api.models import ProgrammaticAuditSummary, ProgrammaticGroup
+    from api.services import programmatic_audit
+
+    result = programmatic_audit.analyze_pages(crawl_data.pages or [])
+    groups = [ProgrammaticGroup(**g) for g in result.get("groups", [])]
+    return ProgrammaticAuditSummary(
+        isProgrammatic=result.get("isProgrammatic", False),
+        groups=groups,
     )
