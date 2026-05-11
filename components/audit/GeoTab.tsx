@@ -1,12 +1,16 @@
 'use client'
 
+import { useState } from 'react'
 import type { GeoAuditSummary, GeoPageScore, GeoQueryVerdict } from '@/lib/types'
 
 interface Props {
   data?: GeoAuditSummary
 }
 
+type Sub = 'citation' | 'crawlers' | 'pages'
+
 export function GeoTab({ data }: Props) {
+  const [sub, setSub] = useState<Sub>('citation')
   if (!data) {
     return (
       <div className="text-sm text-text-tertiary py-8">
@@ -15,117 +19,136 @@ export function GeoTab({ data }: Props) {
       </div>
     )
   }
-
+  const blockedCount = Object.entries(data.aiCrawlerStatus).filter(([, s]) =>
+    s.startsWith('blocked'),
+  ).length
+  const subTabs: { id: Sub; label: string; count?: number }[] = [
+    { id: 'citation', label: 'Citation par les IA', count: data.queriesTested || undefined },
+    { id: 'crawlers', label: 'Crawlers & llms.txt', count: blockedCount || undefined },
+    { id: 'pages', label: 'Citabilité par page', count: data.pageScores.length || undefined },
+  ]
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <p className="text-xs text-text-tertiary">
-        GEO (Generative Engine Optimization) = à quel point le site est{' '}
-        <strong>citable</strong> par ChatGPT, Perplexity, Claude, Google AI
-        Overviews. Différent du SEO classique : il faut des passages courts
-        avec réponse directe, des headings en questions, des stats sourcées,
-        du HTML server-rendered, et les crawlers AI autorisés.
+        GEO = à quel point le site est <strong>citable</strong> par ChatGPT,
+        Perplexity, Claude, Google AI Overviews. Différent du SEO : passages
+        courts avec réponse directe, headings en questions, stats sourcées, HTML
+        server-rendered, crawlers AI autorisés.
       </p>
 
-      {/* Citation test by query */}
-      {data.queriesTested > 0 && (
-        <section>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
-            Test de citabilité IA par requête
-          </h3>
-          <p className="text-xs text-text-tertiary mb-3">
-            On a généré {data.queriesTested} requêtes plausibles selon
-            l&apos;intention de recherche et estimé si une IA citerait ce site —
-            site probablement cité sur{' '}
-            <strong>
-              {data.citedCount}/{data.queriesTested}
-            </strong>
-            . Estimation IA + recherche web ; ChatGPT/Perplexity ne sont pas
-            interrogeables directement, leurs verdicts sont des projections.
-          </p>
-          <div className="space-y-2">
-            {data.queryVerdicts.map((v, i) => (
-              <QueryVerdictRow key={i} v={v} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Headline */}
+      {/* Always-visible headline cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <Stat
           label="Score citabilité moyen"
           value={`${data.averagePageScore}/100`}
-          tone={
-            data.averagePageScore >= 70
-              ? 'ok'
-              : data.averagePageScore >= 40
-                ? 'warn'
-                : 'bad'
-          }
+          tone={data.averagePageScore >= 70 ? 'ok' : data.averagePageScore >= 40 ? 'warn' : 'bad'}
         />
         <Stat
           label="/llms.txt"
           value={data.hasLlmsTxt ? 'présent ✓' : 'absent'}
           tone={data.hasLlmsTxt ? 'ok' : 'warn'}
         />
-        <Stat
-          label="Crawlers AI bloqués"
-          value={String(
-            Object.entries(data.aiCrawlerStatus).filter(([, s]) =>
-              s.startsWith('blocked'),
-            ).length,
-          )}
-        />
+        <Stat label="Crawlers AI bloqués" value={String(blockedCount)} tone={blockedCount > 0 ? 'warn' : undefined} />
       </div>
 
-      {/* Site-level */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {data.siteStrengths.length > 0 && (
-          <Panel title="Points forts (site)" tone="ok">
-            {data.siteStrengths.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </Panel>
-        )}
-        {data.siteWeaknesses.length > 0 && (
-          <Panel title="À corriger (site)" tone="warn">
-            {data.siteWeaknesses.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </Panel>
-        )}
+      {/* Sub-tabs */}
+      <div className="flex gap-1 border-b border-[var(--border-subtle)]">
+        {subTabs.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setSub(s.id)}
+            className={`px-3 py-2 text-sm whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
+              sub === s.id
+                ? 'text-primary border-primary font-medium'
+                : 'text-text-secondary border-transparent hover:text-text-primary'
+            }`}
+          >
+            {s.label}
+            {typeof s.count === 'number' && (
+              <span
+                className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded ${
+                  sub === s.id ? 'bg-[var(--primary-bg)] text-primary' : 'bg-bg-elevated text-text-tertiary'
+                }`}
+              >
+                {s.count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      {/* AI crawler status */}
-      <section>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
-          Statut des crawlers AI dans robots.txt
-        </h3>
-        <div className="flex flex-wrap gap-2 text-xs">
-          {Object.entries(data.aiCrawlerStatus).map(([ua, status]) => (
-            <span
-              key={ua}
-              className="px-2 py-1 rounded border border-[var(--border-subtle)] bg-bg-surface"
-            >
-              <span className="font-mono">{ua}</span>{' '}
-              <span className={statusColor(status)}>{statusLabel(status)}</span>
-            </span>
-          ))}
-        </div>
-      </section>
+      {sub === 'citation' && (
+        data.queriesTested > 0 ? (
+          <section>
+            <p className="text-xs text-text-tertiary mb-3">
+              {data.queriesTested} requêtes plausibles générées selon l&apos;intention —
+              site probablement cité sur <strong>{data.citedCount}/{data.queriesTested}</strong>.
+              Estimation IA + recherche web ; ChatGPT/Perplexity ne sont pas interrogeables
+              directement, leurs verdicts sont des projections.
+            </p>
+            <div className="space-y-2">
+              {data.queryVerdicts.map((v, i) => (
+                <QueryVerdictRow key={i} v={v} />
+              ))}
+            </div>
+          </section>
+        ) : (
+          <p className="text-sm text-text-tertiary py-6">
+            Le test de citabilité par requête n&apos;a pas pu être réalisé pour cet
+            audit (délai ou quota IA). Relancez l&apos;audit pour l&apos;obtenir.
+          </p>
+        )
+      )}
 
-      {/* Per-page (worst first) */}
-      {data.pageScores.length > 0 && (
-        <section>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
-            Citabilité par page (les plus faibles d&apos;abord)
-          </h3>
-          <div className="space-y-2">
-            {data.pageScores.map((p) => (
-              <PageRow key={p.url} p={p} />
-            ))}
+      {sub === 'crawlers' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {data.siteStrengths.length > 0 && (
+              <Panel title="Points forts (site)" tone="ok">
+                {data.siteStrengths.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </Panel>
+            )}
+            {data.siteWeaknesses.length > 0 && (
+              <Panel title="À corriger (site)" tone="warn">
+                {data.siteWeaknesses.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </Panel>
+            )}
           </div>
-        </section>
+          <section>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
+              Statut des crawlers AI dans robots.txt
+            </h3>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {Object.entries(data.aiCrawlerStatus).map(([ua, status]) => (
+                <span key={ua} className="px-2 py-1 rounded border border-[var(--border-subtle)] bg-bg-surface">
+                  <span className="font-mono">{ua}</span>{' '}
+                  <span className={statusColor(status)}>{statusLabel(status)}</span>
+                </span>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {sub === 'pages' && (
+        data.pageScores.length > 0 ? (
+          <section>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
+              Citabilité par page (les plus faibles d&apos;abord)
+            </h3>
+            <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+              {data.pageScores.map((p) => (
+                <PageRow key={p.url} p={p} />
+              ))}
+            </div>
+          </section>
+        ) : (
+          <p className="text-sm text-text-tertiary py-6">Aucun score de page disponible.</p>
+        )
       )}
     </div>
   )

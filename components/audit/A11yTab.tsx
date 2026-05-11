@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import type { AccessibilityAudit, ResponsiveAudit } from '@/lib/types'
 
 interface Props {
@@ -7,7 +8,10 @@ interface Props {
   responsive?: ResponsiveAudit
 }
 
+type Sub = 'a11y' | 'responsive'
+
 export function A11yTab({ a11y, responsive }: Props) {
+  const [sub, setSub] = useState<Sub>(a11y ? 'a11y' : 'responsive')
   if (!a11y && !responsive) {
     return (
       <div className="text-sm text-text-tertiary py-8">
@@ -16,10 +20,32 @@ export function A11yTab({ a11y, responsive }: Props) {
       </div>
     )
   }
+  const subTabs: { id: Sub; label: string; show: boolean }[] = [
+    { id: 'a11y', label: 'Accessibilité (WCAG)', show: !!a11y },
+    { id: 'responsive', label: 'Responsive / mobile', show: !!responsive },
+  ]
+  const visible = subTabs.filter((s) => s.show)
   return (
-    <div className="space-y-8">
-      {a11y && <AccessibilitySection a={a11y} />}
-      {responsive && <ResponsiveSection r={responsive} />}
+    <div className="space-y-5">
+      {visible.length > 1 && (
+        <div className="flex gap-1 border-b border-[var(--border-subtle)]">
+          {visible.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setSub(s.id)}
+              className={`px-3 py-2 text-sm whitespace-nowrap border-b-2 transition-colors ${
+                sub === s.id
+                  ? 'text-primary border-primary font-medium'
+                  : 'text-text-secondary border-transparent hover:text-text-primary'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {sub === 'a11y' && a11y && <AccessibilitySection a={a11y} />}
+      {sub === 'responsive' && responsive && <ResponsiveSection r={responsive} />}
     </div>
   )
 }
