@@ -112,14 +112,17 @@ def auth_verify() -> dict[str, str]:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, object]:
     active_model = (
         settings.anthropic_model
         if settings.llm_provider == "anthropic"
         else settings.gemini_model
     )
+    from api.services.store import is_persistent
+
     return {
         "status": "ok",
         "provider": settings.llm_provider,
         "model": active_model,
+        "persistentStorage": is_persistent(),
     }

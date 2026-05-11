@@ -339,12 +339,15 @@ def _parse_iso(ts: str) -> datetime:
 
 
 _store: Optional[object] = None
+# True only when the active store survives process restarts (SQL backend).
+# False when we run on the in-memory fallback (data wiped on redeploy).
+_store_persistent: bool = False
 
 
 def get_store():
     """Return the active store. Picks SQL when a DATABASE_URL is set, else
     falls back to in-memory. Cached per process."""
-    global _store
+    global _store, _store_persistent
     if _store is not None:
         return _store
 
@@ -352,18 +355,27 @@ def get_store():
     url = (get_settings().database_url or "").strip()
     if not url:
         _store = InMemoryAuditStore()
+        _store_persistent = False
         return _store
 
     try:
         from api.services.store_sql import SqlAuditStore
         _store = SqlAuditStore()
+        _store_persistent = True
     except Exception as e:
         import logging
         logging.getLogger(__name__).exception(
             "SQL store failed to initialise — falling back to in-memory: %s", e
         )
         _store = InMemoryAuditStore()
+        _store_persistent = False
     return _store
+
+
+def is_persistent() -> bool:
+    """Whether the active store survives restarts. Call get_store() first."""
+    get_store()
+    return _store_persistent
 
 
 # Typing helper for callers that want to keep annotations tight.

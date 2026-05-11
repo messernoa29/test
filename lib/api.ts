@@ -109,6 +109,19 @@ export async function fetchAuthStatus(): Promise<{ required: boolean }> {
   return request<{ required: boolean }>('/auth/status')
 }
 
+export interface HealthInfo {
+  status: string
+  provider?: string
+  model?: string
+  persistentStorage?: boolean
+}
+
+export async function fetchHealth(): Promise<HealthInfo> {
+  const res = await fetch(`${BASE_URL}/health`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`health ${res.status}`)
+  return (await res.json()) as HealthInfo
+}
+
 export async function verifyPassword(password: string): Promise<boolean> {
   const token = typeof window !== 'undefined'
     ? window.btoa(`admin:${password}`)
