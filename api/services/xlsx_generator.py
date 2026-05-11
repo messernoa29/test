@@ -115,6 +115,10 @@ def generate_xlsx(
         crawl_ws = wb.create_sheet("Crawl technique")
         _write_technical_crawl(crawl_ws, audit.technicalCrawl)
 
+    if audit.accessibilityAudit and audit.accessibilityAudit.pageScores:
+        a11y_ws = wb.create_sheet("Accessibilité")
+        _write_a11y(a11y_ws, audit.accessibilityAudit)
+
     if audit.missingPages:
         missing_ws = wb.create_sheet("À créer")
         _write_missing(missing_ws, audit.missingPages)
@@ -358,6 +362,25 @@ def _write_technical_crawl(ws: Worksheet, tc) -> None:
 
     if row > 2:
         ws.auto_filter.ref = f"A1:R{row - 1}"
+    ws.freeze_panes = "A2"
+
+
+def _write_a11y(ws: Worksheet, a) -> None:
+    """Accessibility per-page scores + issues."""
+    headers = ["URL", "Score a11y", "Problèmes détectés"]
+    _write_header(ws, headers)
+    for letter, width in zip(("A", "B", "C"), (55, 12, 100)):
+        ws.column_dimensions[letter].width = width
+    row = 2
+    for p in a.pageScores:
+        ws.cell(row=row, column=1, value=p.url).font = _MONO_FONT
+        sc = ws.cell(row=row, column=2, value=p.score)
+        sc.number_format = "0"
+        sc.alignment = Alignment(horizontal="center")
+        _wrap_cell(ws.cell(row=row, column=3, value="; ".join(p.issues) if p.issues else "—"))
+        row += 1
+    if row > 2:
+        ws.auto_filter.ref = f"A1:C{row - 1}"
     ws.freeze_panes = "A2"
 
 
