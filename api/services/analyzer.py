@@ -848,20 +848,21 @@ Tu peux utiliser web_search pour vérifier des ordres de grandeur (volumes de re
 {target_keywords}
 
 ## Ce que tu dois produire
-1. estimatedMonthlyOrganicTraffic : ordre de grandeur du trafic organique mensuel (entier). Si vraiment impossible, null.
+1. estimatedMonthlyOrganicTraffic : ordre de grandeur du trafic organique mensuel (entier — TOUJOURS donne un nombre, jamais null sauf si le site est vide/inaccessible).
 2. trafficRange : fourchette lisible (ex: "300–800 visites/mois").
-3. estimatedRankingKeywordsCount : combien de mots-clés ce site rank probablement (ordre de grandeur).
-4. topKeywords : 8 à 15 mots-clés sur lesquels le site rank vraisemblablement. Pour chacun : keyword, estimatedMonthlyVolume (ordre de grandeur), estimatedPosition (1-100), rankingUrl (l'URL du site la plus probable), intent ("informational"|"transactional"|"navigational"), note courte.
-5. opportunities : 8 à 15 mots-clés que le site DEVRAIT cibler mais ne couvre pas (ou mal). Pour chacun : keyword, estimatedMonthlyVolume, difficulty ("low"|"medium"|"high"), suggestedPage (URL existante à optimiser, ou "(nouvelle page)"), rationale.
-6. competitorsLikelyOutranking : 2 à 6 domaines concurrents qui dominent probablement ces SERP.
+3. estimatedRankingKeywordsCount : combien de mots-clés ce site rank probablement (ordre de grandeur, entier).
+4. topKeywords : 8 à 12 mots-clés sur lesquels le site rank vraisemblablement. Pour chacun : keyword, estimatedMonthlyVolume (ordre de grandeur, ENTIER — jamais null), estimatedPosition (1-100, ENTIER), rankingUrl (l'URL du site la plus probable), intent ("informational"|"transactional"|"navigational"), note ≤ 12 mots.
+5. opportunities : 8 à 12 mots-clés que le site DEVRAIT cibler mais ne couvre pas (ou mal). Pour chacun : keyword, estimatedMonthlyVolume (ENTIER), difficulty ("low"|"medium"|"high"), suggestedPage (URL existante à optimiser, ou "(nouvelle page)"), rationale ≤ 15 mots.
+6. competitorsLikelyOutranking : 2 à 5 domaines concurrents qui dominent probablement ces SERP.
 7. summary : 2-3 phrases de synthèse honnête (forces/faiblesses de visibilité).
 
 ## Discipline
-- N'invente pas de chiffres précis et faux. Ordres de grandeur uniquement (10, 50, 200, 1000…).
-- Si tu n'as aucun signal fiable, mets les champs numériques à null et dis-le dans summary.
+- TOUJOURS chiffrer (ordres de grandeur : 10, 50, 200, 1000…). N'utilise null QUE si le site n'a aucun contenu exploitable.
+- N'invente pas de chiffres précis et faux, mais une estimation cohérente vaut mieux que rien.
 - Reste cohérent : un site de 5 pages locales ne fait pas 50 000 visites/mois.
+- Réponse COMPACTE pour ne pas dépasser : notes/rationales très courtes, pas de phrases longues.
 
-## Sortie STRICTE (aucun texte hors balises)
+## Sortie STRICTE — UNIQUEMENT le bloc XML ci-dessous, RIEN avant ni après (pas de "voici", pas de sources, pas de commentaire)
 
 <VISIBILITY_JSON>
 {{
@@ -903,42 +904,107 @@ def _collect_observed_keywords(crawl: CrawlData, pages: list[dict]) -> list[tupl
     return out[:40]
 
 
+_VISIBILITY_NUMBERS_TEMPLATE = """Estimation chiffrée RAPIDE de visibilité pour {domain}.
+
+Pas de recherche web. À partir des mots-clés ci-dessous et de ton estimation, donne UNIQUEMENT des ordres de grandeur.
+
+Mots-clés observés :
+{keywords}
+Nombre de pages du site : {n_pages}
+
+Produis un JSON compact :
+- estimatedMonthlyOrganicTraffic : entier (ordre de grandeur)
+- trafficRange : "X – Y visites/mois"
+- estimatedRankingKeywordsCount : entier
+- topKeywords : pour CHAQUE mot-clé ci-dessus (max 12) : {{keyword, estimatedMonthlyVolume (entier), estimatedPosition (1-100), intent}}
+
+## Sortie STRICTE — uniquement ce bloc, rien avant/après
+<VISIBILITY_NUM_JSON>
+{{"estimatedMonthlyOrganicTraffic": 0, "trafficRange": "...", "estimatedRankingKeywordsCount": 0, "topKeywords": [{{"keyword": "...", "estimatedMonthlyVolume": 0, "estimatedPosition": 0, "intent": "informational"}}]}}
+</VISIBILITY_NUM_JSON>"""
+
+
+def _visibility_numbers_only(crawl: CrawlData, kws: list[tuple[str, str]]) -> Optional[dict]:
+    """One small no-web-search LLM call that only returns the numbers, so the
+    offline fallback isn't completely empty. Best-effort."""
+    if not kws:
+        return None
+    prompt = _VISIBILITY_NUMBERS_TEMPLATE.format(
+        domain=crawl.domain,
+        keywords="\n".join(f"  - {k}" for k, _ in kws[:12]),
+        n_pages=len(crawl.pages),
+    )
+    try:
+        response = get_llm_client().generate(
+            system=_SYSTEM, user_prompt=prompt, max_tokens=2500, enable_web_search=False,
+        )
+        payload = _extract_json(response, tag="VISIBILITY_NUM_JSON", context=crawl.domain)
+        return payload if isinstance(payload, dict) else None
+    except Exception as e:
+        logger.warning("Visibility numbers-only fallback failed for %s: %s", crawl.domain, e)
+        return None
+
+
 def _visibility_fallback(crawl: CrawlData, pages: list[dict]) -> dict:
-    """A deterministic, no-LLM visibility estimate so the section always
-    renders. Numbers are deliberately absent (we can't guess them offline);
-    keywords come straight from the crawl."""
+    """Offline-ish visibility estimate so the section always renders. Tries one
+    tiny no-web LLM call for the numbers; if that fails too, keywords-only."""
     kws = _collect_observed_keywords(crawl, pages)
     n_pages = len(crawl.pages)
-    top = [
-        {
-            "keyword": kw,
-            "estimatedMonthlyVolume": None,
-            "estimatedPosition": None,
-            "rankingUrl": url or crawl.url,
-            "intent": "",
-            "note": "Observé sur la page (estimation hors-ligne, pas de données SERP)",
-        }
-        for kw, url in kws[:15]
-    ]
-    return {
-        "disclaimer": (
-            "Estimation hors-ligne (la recherche web n'a pas pu être réalisée). "
-            "Mots-clés issus du contenu du site ; aucun chiffre de volume/position "
-            "fiable disponible — relancez l'audit pour une estimation enrichie."
-        ),
-        "estimatedMonthlyOrganicTraffic": None,
-        "trafficRange": "",
-        "estimatedRankingKeywordsCount": None,
+    nums = _visibility_numbers_only(crawl, kws)
+
+    kw_url = {k: u for k, u in kws}
+    top: list[dict] = []
+    if nums and isinstance(nums.get("topKeywords"), list):
+        for k in nums["topKeywords"][:12]:
+            if not isinstance(k, dict):
+                continue
+            kw = str(k.get("keyword", "")).strip()
+            if not kw:
+                continue
+            top.append({
+                "keyword": kw,
+                "estimatedMonthlyVolume": k.get("estimatedMonthlyVolume"),
+                "estimatedPosition": k.get("estimatedPosition"),
+                "rankingUrl": kw_url.get(kw) or crawl.url,
+                "intent": str(k.get("intent", "")),
+                "note": "Estimation IA (sans recherche web)",
+            })
+    if not top:
+        # Pure offline — keywords from the crawl, no numbers.
+        top = [
+            {
+                "keyword": kw,
+                "estimatedMonthlyVolume": None,
+                "estimatedPosition": None,
+                "rankingUrl": url or crawl.url,
+                "intent": "",
+                "note": "Observé sur la page (pas de données SERP)",
+            }
+            for kw, url in kws[:12]
+        ]
+
+    has_numbers = bool(nums)
+    disclaimer = (
+        "Estimation IA sans recherche web (la recherche n'a pas abouti) — "
+        "chiffres très indicatifs."
+        if has_numbers else
+        "Estimation hors-ligne — mots-clés issus du contenu du site ; pas de "
+        "chiffres de volume/position. Relancez l'audit pour une estimation enrichie."
+    )
+    return _sanitize_visibility({
+        "disclaimer": disclaimer,
+        "estimatedMonthlyOrganicTraffic": (nums or {}).get("estimatedMonthlyOrganicTraffic"),
+        "trafficRange": (nums or {}).get("trafficRange", ""),
+        "estimatedRankingKeywordsCount": (nums or {}).get("estimatedRankingKeywordsCount"),
         "topKeywords": top,
         "opportunities": [],
         "competitorsLikelyOutranking": [],
         "summary": (
-            f"Site de {n_pages} page(s). Thématiques détectées : "
+            f"Site de {n_pages} page(s). Thématiques : "
             + ", ".join(kw for kw, _ in kws[:6])
-            + ("…" if len(kws) > 6 else "")
-            + "." if kws else "Pas de mots-clés clairs détectés dans le contenu."
-        ),
-    }
+            + ("…" if len(kws) > 6 else "") + "."
+        ) if kws else "Pas de mots-clés clairs détectés dans le contenu.",
+    })
 
 
 def _sanitize_visibility(payload: dict) -> dict:
@@ -980,10 +1046,11 @@ def _run_visibility_estimate(crawl: CrawlData, pages: list[dict]) -> dict:
         target_keywords=target_keywords,
     )
 
+    # max_tokens generous so the JSON isn't truncated (8-12 KW + 8-12 opps).
     for use_web in (True, False):
         try:
             response = get_llm_client().generate(
-                system=_SYSTEM, user_prompt=prompt, max_tokens=6000,
+                system=_SYSTEM, user_prompt=prompt, max_tokens=9000,
                 enable_web_search=use_web,
             )
             payload = _extract_json(response, tag="VISIBILITY_JSON", context=crawl.domain)
