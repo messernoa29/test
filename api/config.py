@@ -58,7 +58,7 @@ class Settings:
             os.getenv("GEMINI_API_KEY", "").strip()
             or os.getenv("GOOGLE_API_KEY", "").strip()
         )
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3-pro-preview")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3-flash")
 
         # PageSpeed Insights — optional (free quota 25 000 req/day with key).
         # If missing, the crawler skips CWV enrichment and the analyzer marks
