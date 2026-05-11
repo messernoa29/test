@@ -19,7 +19,10 @@ from api.services.llm.base import LLMClient, LLMResponse, StopReason
 
 logger = logging.getLogger(__name__)
 
-_RATE_LIMIT_COOLDOWN_S = 62
+# Rate-limit retry backoff (exponential-ish). The previous flat 62s × 5
+# attempts could add 5 minutes per call — on the free tier, with ~10 LLM
+# calls per audit, that ballooned audits to 60-90 min. Cap the pain.
+_RATE_LIMIT_BACKOFF_S = [12, 25, 40]
 _OVERLOAD_BACKOFF_S = [8, 20, 45]
 _CONNECTION_RETRY_S = 5
 
@@ -59,6 +62,7 @@ class GeminiProvider(LLMClient):
             )
 
         overload_attempts = 0
+        ratelimit_attempts = 0
         last_exception: Optional[Exception] = None
 
         for attempt in range(5):
@@ -68,13 +72,17 @@ class GeminiProvider(LLMClient):
             except genai_errors.ClientError as e:
                 status = getattr(e, "code", None)
                 if status == 429:
-                    logger.warning(
-                        "Gemini rate limit (attempt %d), sleeping %ds",
-                        attempt + 1, _RATE_LIMIT_COOLDOWN_S,
-                    )
-                    time.sleep(_RATE_LIMIT_COOLDOWN_S)
-                    last_exception = e
-                    continue
+                    if ratelimit_attempts < len(_RATE_LIMIT_BACKOFF_S):
+                        delay = _RATE_LIMIT_BACKOFF_S[ratelimit_attempts]
+                        ratelimit_attempts += 1
+                        logger.warning(
+                            "Gemini rate limit (attempt %d), sleeping %ds",
+                            attempt + 1, delay,
+                        )
+                        time.sleep(delay)
+                        last_exception = e
+                        continue
+                    raise
                 # 4xx other than 429 are not retriable (bad request, auth)
                 raise
             except genai_errors.ServerError as e:

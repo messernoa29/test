@@ -19,16 +19,21 @@ import logging
 import re
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional
 
 from api.models import AuditResult, CompetitorReport, CrawlData, CrawlPage
 from api.services.llm import LLMResponse, get_llm_client
 
 logger = logging.getLogger(__name__)
 
-PAGE_BATCH_SIZE = 6  # pages per PAGES call — keeps responses ~5-7K tokens
+PAGE_BATCH_SIZE = 10  # pages per PAGES call — fewer round-trips, ~9-12K tokens
 INTER_CALL_DELAY_S = 2.5
+# Hard ceiling on per-page analysis: above this many pages we still analyse
+# the most important N in detail (the technical crawl + link graph already
+# cover all of them); avoids 9+ LLM round-trips on the free tier.
+MAX_PAGES_DETAILED = 30
 
 
 _SYSTEM = """Tu es un consultant senior en audit web professionnel, spécialisé SEO technique, contenu E-E-A-T, UX, performance, sécurité et visibilité AI (GEO).
@@ -330,6 +335,22 @@ Tu peux utiliser web_search pour vérifier le volume mensuel estimé d'une requ�
 # Public API
 
 
+def _time_boxed(fn: Callable, timeout_s: float, label: str):
+    """Run `fn` in a worker thread; return its result or None if it exceeds
+    `timeout_s` or raises. The worker thread is left to finish on its own
+    (we can't kill it) but the audit moves on."""
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(fn)
+            return fut.result(timeout=timeout_s)
+    except FuturesTimeout:
+        logger.warning("Optional pass '%s' timed out after %ss — skipped", label, timeout_s)
+        return None
+    except Exception as e:
+        logger.warning("Optional pass '%s' failed: %s — skipped", label, e)
+        return None
+
+
 def analyze(crawl: CrawlData) -> AuditResult:
     """Run the full multi-pass analysis and return a merged AuditResult."""
     crawl_json = _compact_crawl(crawl)
@@ -348,11 +369,12 @@ def analyze(crawl: CrawlData) -> AuditResult:
     missing = _run_missing(crawl)
     _sanitize_missing(missing)
 
+    # Optional web_search passes — best-effort, time-boxed so a slow/rate-
+    # limited Gemini call can't stall the whole audit. If they don't finish
+    # in time we just omit them.
     time.sleep(INTER_CALL_DELAY_S)
-    visibility = _run_visibility_estimate(crawl, pages)
-
-    time.sleep(INTER_CALL_DELAY_S)
-    sxo = _run_sxo(crawl, pages)
+    visibility = _time_boxed(lambda: _run_visibility_estimate(crawl, pages), 90, "visibility")
+    sxo = _time_boxed(lambda: _run_sxo(crawl, pages), 90, "sxo")
 
     _log_coverage(crawl, pages)
 
@@ -436,13 +458,33 @@ def _run_overview(crawl: CrawlData, crawl_json: str) -> dict:
     )
     response = get_llm_client().generate(
         system=_SYSTEM, user_prompt=prompt, max_tokens=16000,
+        enable_web_search=False,  # the crawl payload is exhaustive; web_search
+                                  # here just adds 30-90s with little upside
     )
     return _extract_json(response, tag="OVERVIEW_JSON", context=crawl.domain)
 
 
+def _select_pages_for_detail(crawl: CrawlData) -> list[CrawlPage]:
+    """Pick the pages worth a per-page LLM analysis: home + hubs + a sample,
+    capped at MAX_PAGES_DETAILED. Everything is still covered by the technical
+    crawl / link graph aggregates."""
+    pages = list(crawl.pages)
+    if len(pages) <= MAX_PAGES_DETAILED:
+        return pages
+    hub_urls = set(crawl.linkGraph.hubPages) if crawl.linkGraph else set()
+    orphan_urls = set(crawl.linkGraph.orphanPages) if crawl.linkGraph else set()
+    priority = [
+        p for p in pages
+        if p.url == crawl.url or p.url in hub_urls or p.url in orphan_urls
+    ]
+    rest = [p for p in pages if p not in priority]
+    return (priority + rest)[:MAX_PAGES_DETAILED]
+
+
 def _run_pages_batched(crawl: CrawlData) -> list[dict]:
     """Analyse pages in fixed-size batches so no single response overruns."""
-    batches = _chunk(crawl.pages, PAGE_BATCH_SIZE)
+    selected = _select_pages_for_detail(crawl)
+    batches = _chunk(selected, PAGE_BATCH_SIZE)
     all_pages: list[dict] = []
 
     for i, batch in enumerate(batches, start=1):
