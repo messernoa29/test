@@ -107,7 +107,42 @@ def auth_status() -> dict[str, bool]:
 
 @app.get("/auth/verify", dependencies=_auth)
 def auth_verify() -> dict[str, str]:
-    """200 if creds OK, 401 otherwise. Used by the login screen."""
+    """200 if creds OK, 401 otherwise. Used by the login screen / token checks."""
+    return {"status": "ok"}
+
+
+@app.post("/auth/token")
+def auth_token(body: dict | None = None) -> dict[str, object]:
+    """Exchange the shared password for an opaque session token.
+
+    Body: {"password": "..."}. On success returns {"token", "expiresIn"} so
+    the client can store the token instead of the raw password.
+    """
+    from fastapi import HTTPException, status as _status
+    from api.services import auth as _auth_svc, session_tokens
+
+    pw = ""
+    if isinstance(body, dict):
+        pw = str(body.get("password") or "")
+    # When auth is disabled (dev), still hand out a token so the client flow
+    # is uniform.
+    if not _auth_svc.verify_password(pw):
+        raise HTTPException(
+            status_code=_status.HTTP_401_UNAUTHORIZED, detail="Mot de passe incorrect."
+        )
+    token, ttl = session_tokens.issue()
+    return {"token": token, "expiresIn": ttl}
+
+
+@app.post("/auth/logout")
+def auth_logout(body: dict | None = None) -> dict[str, str]:
+    """Revoke a session token. Body: {"token": "..."}."""
+    from api.services import session_tokens
+
+    if isinstance(body, dict):
+        tok = str(body.get("token") or "")
+        if tok:
+            session_tokens.revoke(tok)
     return {"status": "ok"}
 
 

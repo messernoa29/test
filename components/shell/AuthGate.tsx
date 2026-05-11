@@ -34,7 +34,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           setState({ kind: 'login' })
           return
         }
-        const ok = await verifyPassword(stored)
+        // Empty arg = re-validate the stored session token.
+        const ok = await verifyPassword('')
         if (cancelled) return
         if (ok) setState({ kind: 'authenticated' })
         else {

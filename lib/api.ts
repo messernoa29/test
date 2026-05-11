@@ -15,27 +15,41 @@ import type {
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
 const DEFAULT_TIMEOUT_MS = 30000
-const AUTH_STORAGE_KEY = 'audit-bureau:password'
+// We store an opaque session token, never the raw password. Old key kept so
+// a stale plaintext password is cleaned up on first load.
+const TOKEN_STORAGE_KEY = 'audit-bureau:token'
+const LEGACY_PW_KEY = 'audit-bureau:password'
 
-export function setStoredPassword(pw: string | null): void {
-  if (typeof window === 'undefined') return
-  if (pw) window.localStorage.setItem(AUTH_STORAGE_KEY, pw)
-  else window.localStorage.removeItem(AUTH_STORAGE_KEY)
+function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(TOKEN_STORAGE_KEY)
 }
 
+function setStoredToken(token: string | null): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(LEGACY_PW_KEY) // scrub any old plaintext
+  if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token)
+  else window.localStorage.removeItem(TOKEN_STORAGE_KEY)
+}
+
+/**
+ * @deprecated kept for AuthGate compatibility — clears the session.
+ * Passing a password no longer stores it; use verifyPassword() to log in.
+ */
+export function setStoredPassword(pw: string | null): void {
+  if (!pw) setStoredToken(null)
+  // a non-null pw is ignored here on purpose — login goes through
+  // verifyPassword() which exchanges it for a token.
+}
+
+/** True if we currently hold a session token. */
 export function getStoredPassword(): string | null {
-  if (typeof window === 'undefined') return null
-  return window.localStorage.getItem(AUTH_STORAGE_KEY)
+  return getStoredToken()
 }
 
 function authHeader(): Record<string, string> {
-  const pw = getStoredPassword()
-  if (!pw) return {}
-  // username fixed to "admin", password matches APP_PASSWORD on the API.
-  const token = typeof window !== 'undefined'
-    ? window.btoa(`admin:${pw}`)
-    : Buffer.from(`admin:${pw}`).toString('base64')
-  return { Authorization: `Basic ${token}` }
+  const token = getStoredToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 export class AuthRequiredError extends Error {
@@ -122,18 +136,60 @@ export async function fetchHealth(): Promise<HealthInfo> {
   return (await res.json()) as HealthInfo
 }
 
+/**
+ * Log in: exchange the password for an opaque session token (stored in
+ * localStorage). Returns true on success. If `password` is empty we treat it
+ * as "re-validate the stored token" — used on app load.
+ */
 export async function verifyPassword(password: string): Promise<boolean> {
-  const token = typeof window !== 'undefined'
-    ? window.btoa(`admin:${password}`)
-    : Buffer.from(`admin:${password}`).toString('base64')
+  // Re-validation path: we already have a token, just check it's still good.
+  if (!password) {
+    const tok = getStoredToken()
+    if (!tok) return false
+    try {
+      const res = await fetch(`${BASE_URL}/auth/verify`, {
+        headers: { Authorization: `Bearer ${tok}` },
+        cache: 'no-store',
+      })
+      if (res.status === 200) return true
+      setStoredToken(null)
+      return false
+    } catch {
+      return false
+    }
+  }
+  // Login path: trade the password for a token.
   try {
-    const res = await fetch(`${BASE_URL}/auth/verify`, {
-      headers: { Authorization: `Basic ${token}` },
+    const res = await fetch(`${BASE_URL}/auth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
       cache: 'no-store',
     })
-    return res.status === 200
+    if (res.status !== 200) return false
+    const data = (await res.json()) as { token?: string }
+    if (!data.token) return false
+    setStoredToken(data.token)
+    return true
   } catch {
     return false
+  }
+}
+
+/** Revoke the current session token (best-effort) and clear it locally. */
+export async function logout(): Promise<void> {
+  const tok = getStoredToken()
+  setStoredToken(null)
+  if (!tok) return
+  try {
+    await fetch(`${BASE_URL}/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: tok }),
+      cache: 'no-store',
+    })
+  } catch {
+    /* best-effort */
   }
 }
 
