@@ -7,6 +7,7 @@ import type {
   TechnicalCrawlSummary,
   TechnicalPageRow,
 } from '@/lib/types'
+import { useDebouncedValue } from '@/lib/useDebouncedValue'
 
 interface Props {
   data?: TechnicalCrawlSummary
@@ -17,7 +18,8 @@ interface Props {
 type StatusFilter = 'all' | '2xx' | '3xx' | '4xx' | '5xx' | 'issues'
 
 export function TechnicalCrawlTab({ data, cultural, programmatic }: Props) {
-  const [filter, setFilter] = useState('')
+  const [filterInput, setFilterInput] = useState('')
+  const filter = useDebouncedValue(filterInput, 200)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const rows = data?.rows ?? []
@@ -114,8 +116,8 @@ export function TechnicalCrawlTab({ data, cultural, programmatic }: Props) {
           <input
             type="search"
             placeholder="Filtrer par URL"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            value={filterInput}
+            onChange={(e) => setFilterInput(e.target.value)}
             className="h-8 px-2 text-xs bg-bg-surface border border-[var(--border-subtle)] rounded text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-primary"
           />
           {(['all', '2xx', '3xx', '4xx', '5xx', 'issues'] as StatusFilter[]).map(
