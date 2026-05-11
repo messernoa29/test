@@ -112,11 +112,17 @@ Produis UNIQUEMENT la partie "overview" — les 6 axes + scores + quick wins + v
 
 ## Quotas de sortie (dimensionne selon la pertinence — PAS de remplissage uniforme)
 - 3 à 6 findings par axe. Si axe sain → 2 findings + 1 finding "ok".
-- description : 1 à 2 phrases (≤ 220 chars)
-- recommendation : 1 à 2 phrases (≤ 220 chars)
-- actions : 2 à 5 items ≤ 140 chars chacun. Chaque action = étape technique concrète (ex: "Ajouter <meta name=\\"description\\"> sur /faq via Webflow → Page Settings → SEO").
+- description : 1 à 3 phrases (≤ 320 chars). DOIT contenir la PREUVE observée : l'URL exacte, la valeur mesurée, le compte, ou la balise concernée. Interdit : "le SEO peut être amélioré", "des optimisations sont possibles", "la performance n'est pas optimale". Obligatoire : "La page /contact n'a pas de <meta name=description> (vu dans le crawl)", "12 images sur 34 n'ont pas d'attribut alt", "Le title de /tarifs fait 78 caractères (max recommandé 60)".
+- recommendation : 1 à 2 phrases (≤ 280 chars). Le RÉSULTAT attendu, chiffré si possible : "Réduire le title à ≤ 60 caractères → meilleur taux de clic SERP", pas "améliorer les titles".
+- actions : 2 à 6 items, ≤ 180 chars chacun. CHAQUE action = une étape OPÉRATIONNELLE qu'on peut exécuter sans réfléchir. Format impératif. Inclure : le QUOI (élément précis), le OÙ (page/fichier/section CMS), et idéalement le NOUVEAU CONTENU proposé entre guillemets. Exemples valides :
+  · "Sur /tarifs, remplacer le <title> actuel par : \\"Tarifs et formules — [Nom marque] | À partir de 29€/mois\\""
+  · "Ajouter dans le <head> de toutes les pages : <link rel=\\"canonical\\" href=\\"[URL absolue de la page]\\">"
+  · "Dans robots.txt, ajouter la ligne : Sitemap: https://exemple.com/sitemap.xml"
+  · "Sur les 12 images sans alt listées plus haut, renseigner un alt descriptif (ex: pour hero.jpg → alt=\\"Équipe en réunion dans les bureaux de Paris\\")"
+  Interdit : "optimiser les images", "revoir la structure", "améliorer le contenu", "ajouter des balises" (sans dire lesquelles ni où).
+- RÈGLE D'OR : si tu écris un finding sans pouvoir donner d'actions concrètes derrière, c'est que tu n'as pas assez de données → ne l'écris pas, ou marque-le `severity: info` en disant explicitement "audit manuel requis : [quoi vérifier]".
 - verdict d'axe : 1 phrase courte (style "Bon niveau, quelques améliorations ciblées" ou "À consolider — headers sécurité absents, RGPD partiel").
-- quickWins : 4 à 8 items priorisés par ratio impact/effort.
+- quickWins : 4 à 8 items priorisés par ratio impact/effort. CHAQUE quick win = une action exécutable (pas un thème). "Ajouter meta description sur /contact, /faq, /tarifs" ✓ — "Travailler le SEO on-page" ✗.
 
 ## Enums (respect strict — ne pas inventer)
 - severity : critical | warning | info | ok | missing   (PAS "improve")
@@ -917,6 +923,48 @@ def _sanitize_enum(
     return fallback
 
 
+# Phrases that signal a finding is vague filler with nothing actionable
+# behind it. If a non-"ok" finding has only this kind of language and no
+# concrete actions, we downgrade it to `info` so it doesn't masquerade as
+# a real recommendation in the report.
+_VAGUE_MARKERS = (
+    "peut être amélioré",
+    "peuvent être améliorés",
+    "des optimisations sont possibles",
+    "des améliorations sont possibles",
+    "n'est pas optimal",
+    "n'est pas optimale",
+    "pourrait être optimisé",
+    "à améliorer",
+    "à optimiser",
+    "revoir la structure",
+    "améliorer le contenu",
+    "travailler le seo",
+    "optimiser les images",
+)
+
+
+def _is_actionable(actions: object) -> bool:
+    """An actions list counts as actionable if it has ≥1 item that is not
+    itself a vague restatement (must reference something concrete: a slash,
+    a tag, a quote, a digit, or a CMS/file keyword)."""
+    if not isinstance(actions, list):
+        return False
+    concrete_signals = ("/", "<", '"', "«", "http", ":")
+    for a in actions:
+        if not isinstance(a, str):
+            continue
+        s = a.strip()
+        if len(s) < 15:
+            continue
+        low = s.lower()
+        if any(m in low for m in _VAGUE_MARKERS):
+            continue
+        if any(sig in s for sig in concrete_signals) or any(ch.isdigit() for ch in s):
+            return True
+    return False
+
+
 def _sanitize_finding(f: dict, *, context: str) -> Optional[dict]:
     severity = _sanitize_enum(
         f.get("severity"), _SEVERITY_ALIASES,
@@ -936,6 +984,23 @@ def _sanitize_finding(f: dict, *, context: str) -> Optional[dict]:
             f["effort"], _EFFORT_ALIASES,
             field="finding.effort", context=context, fallback=None,
         )
+
+    # Vagueness guard: a critical/warning finding with no concrete actions and
+    # filler-only description is downgraded to info. We keep it (the signal
+    # might be real) but it stops being presented as an actionable fix.
+    if severity in ("critical", "warning"):
+        desc = (f.get("description") or "").lower()
+        title = (f.get("title") or "").lower()
+        actionable = _is_actionable(f.get("actions"))
+        looks_vague = any(m in desc for m in _VAGUE_MARKERS) or (
+            len(desc) < 40 and not any(ch.isdigit() for ch in desc) and "/" not in desc
+        )
+        if not actionable and looks_vague:
+            logger.warning(
+                "Downgrading vague %s finding '%s' to info in %s (no concrete actions)",
+                severity, title[:60], context,
+            )
+            f["severity"] = "info"
     return f
 
 
