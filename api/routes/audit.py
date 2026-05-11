@@ -266,6 +266,36 @@ def download_pdf(audit_id: str, agency: Optional[str] = None) -> Response:
     )
 
 
+@router.get("/{audit_id}/markdown")
+def download_markdown(audit_id: str, agency: Optional[str] = None) -> Response:
+    job = get_store().get(audit_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    if job.status != "done" or job.result is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Audit pas encore prêt."
+                if job.status == "pending"
+                else f"Audit échoué : {job.error or 'erreur inconnue'}"
+            ),
+        )
+    from api.services.markdown_generator import generate_markdown
+
+    try:
+        text = generate_markdown(job.result, agency_name=agency)
+    except Exception as e:
+        logger.exception("Markdown generation error")
+        raise HTTPException(status_code=500, detail="Markdown generation failed") from e
+
+    filename = f"audit-{_safe_filename(job.domain)}.md"
+    return Response(
+        content=text,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{audit_id}/xlsx")
 def download_xlsx(audit_id: str) -> Response:
     job = get_store().get(audit_id)

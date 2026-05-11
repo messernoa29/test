@@ -201,6 +201,11 @@ export function xlsxUrl(id: string): string {
   return `${BASE_URL}/audit/${encodeURIComponent(id)}/xlsx`
 }
 
+export function markdownUrl(id: string, agency?: string): string {
+  const qs = agency ? `?agency=${encodeURIComponent(agency)}` : ''
+  return `${BASE_URL}/audit/${encodeURIComponent(id)}/markdown${qs}`
+}
+
 // --- Branding / agency settings ---------------------------------------------
 
 export async function getBranding(): Promise<AgencyBranding> {

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { notFound, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { AuthRequiredError, getAudit, pdfUrl, xlsxUrl } from '@/lib/api'
+import { AuthRequiredError, getAudit, markdownUrl, pdfUrl, xlsxUrl } from '@/lib/api'
 import type { AuditJobDetail } from '@/lib/types'
 import { AuditActions } from '@/components/audit/AuditActions'
 import { AuditDetailView } from '@/components/audit/AuditDetailView'
@@ -112,6 +112,13 @@ export default function AuditDetailPage() {
             />
             {isDone && (
               <>
+                <a
+                  href={markdownUrl(job.id)}
+                  className="inline-flex h-9 px-3 items-center bg-bg-surface text-text-primary border border-[var(--border-default)] rounded-md font-medium text-sm hover:bg-bg-elevated transition-colors"
+                  title="Fichier .md prêt à importer dans Notion / Obsidian (cases à cocher pour chaque action)"
+                >
+                  Markdown / Notion
+                </a>
                 <a
                   href={xlsxUrl(job.id)}
                   className="inline-flex h-9 px-3 items-center bg-bg-surface text-text-primary border border-[var(--border-default)] rounded-md font-medium text-sm hover:bg-bg-elevated transition-colors"
