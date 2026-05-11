@@ -16,11 +16,13 @@ interface Props {
 }
 
 type StatusFilter = 'all' | '2xx' | '3xx' | '4xx' | '5xx' | 'issues'
+type SubTab = 'summary' | 'issues' | 'table' | 'extra'
 
 export function TechnicalCrawlTab({ data, cultural, programmatic }: Props) {
   const [filterInput, setFilterInput] = useState('')
   const filter = useDebouncedValue(filterInput, 200)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [sub, setSub] = useState<SubTab>('summary')
 
   const rows = data?.rows ?? []
 
@@ -55,9 +57,31 @@ export function TechnicalCrawlTab({ data, cultural, programmatic }: Props) {
     )
   }
 
+  const issueCount =
+    data.duplicateTitles.length +
+    data.duplicateMetaDescriptions.length +
+    data.duplicateH1s.length +
+    data.missingTitles.length +
+    data.missingMetaDescriptions.length +
+    data.missingH1.length +
+    data.titleTooLong.length +
+    data.titleTooShort.length +
+    data.metaTooLong.length +
+    data.metaTooShort.length +
+    data.lowTextRatioPages.length +
+    data.brokenInternalLinks.length
+  const hasExtra = !!cultural?.isMultilingual || !!programmatic?.isProgrammatic
+
+  const subTabs: { id: SubTab; label: string; count?: number }[] = [
+    { id: 'summary', label: 'Résumé' },
+    { id: 'issues', label: 'Problèmes', count: issueCount },
+    { id: 'table', label: 'Tableau complet', count: rows.length },
+  ]
+  if (hasExtra) subTabs.push({ id: 'extra', label: 'Multilingue & masse' })
+
   return (
-    <div className="space-y-6">
-      {/* Summary cards */}
+    <div className="space-y-5">
+      {/* Always-visible summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Stat label="URLs crawlées" value={data.pagesCrawled} />
         <Stat label="Indexables" value={data.indexablePages} />
@@ -65,63 +89,91 @@ export function TechnicalCrawlTab({ data, cultural, programmatic }: Props) {
         <Stat label="Profondeur max" value={`${data.maxDepth} clics`} />
       </div>
 
-      {/* Status code breakdown */}
-      <div className="flex flex-wrap gap-2 text-xs">
-        {Object.entries(data.statusCounts)
-          .sort()
-          .map(([code, n]) => (
-            <span
-              key={code}
-              className="px-2 py-1 rounded border border-[var(--border-subtle)] bg-bg-surface tabular-nums"
-            >
-              <span className={statusColor(code)}>{code}</span> · {n}
-            </span>
-          ))}
+      {/* Sub-tab bar */}
+      <div className="flex gap-1 border-b border-[var(--border-subtle)]">
+        {subTabs.map((st) => (
+          <button
+            key={st.id}
+            onClick={() => setSub(st.id)}
+            className={`px-3 py-2 text-sm whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
+              sub === st.id
+                ? 'text-primary border-primary font-medium'
+                : 'text-text-secondary border-transparent hover:text-text-primary'
+            }`}
+          >
+            {st.label}
+            {typeof st.count === 'number' && (
+              <span
+                className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded ${
+                  sub === st.id
+                    ? 'bg-[var(--primary-bg)] text-primary'
+                    : 'bg-bg-elevated text-text-tertiary'
+                }`}
+              >
+                {st.count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      {/* Issue groups */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <IssueGroup title="Titres dupliqués" groups={data.duplicateTitles} />
-        <IssueGroup
-          title="Meta descriptions dupliquées"
-          groups={data.duplicateMetaDescriptions}
-        />
-        <IssueList title="Pages sans <title>" urls={data.missingTitles} />
-        <IssueList
-          title="Pages sans meta description"
-          urls={data.missingMetaDescriptions}
-        />
-        <IssueList title="Pages sans H1" urls={data.missingH1} />
-        <IssueList
-          title="Titres trop longs (> 60 car.)"
-          urls={data.titleTooLong}
-        />
-        <IssueList
-          title="Titres trop courts (< 30 car.)"
-          urls={data.titleTooShort}
-        />
-        <IssueList
-          title="Ratio texte/HTML faible (< 10%)"
-          urls={data.lowTextRatioPages}
-        />
-        <IssueList
-          title="Liens internes cassés (cibles 4xx/5xx)"
-          urls={data.brokenInternalLinks}
-        />
-      </div>
+      {sub === 'summary' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2 text-xs">
+            {Object.entries(data.statusCounts)
+              .sort()
+              .map(([code, n]) => (
+                <span
+                  key={code}
+                  className="px-2 py-1 rounded border border-[var(--border-subtle)] bg-bg-surface tabular-nums"
+                >
+                  <span className={statusColor(code)}>{code}</span> · {n}
+                </span>
+              ))}
+          </div>
+          <p className="text-xs text-text-secondary">
+            {issueCount === 0
+              ? 'Aucun problème technique on-page détecté (titres/meta/H1, canonicals, ratio texte, liens cassés).'
+              : `${issueCount} groupe(s)/page(s) avec un problème technique — voir l'onglet « Problèmes ».`}
+          </p>
+        </div>
+      )}
 
-      {/* Full table */}
-      <div>
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <input
-            type="search"
-            placeholder="Filtrer par URL"
-            value={filterInput}
-            onChange={(e) => setFilterInput(e.target.value)}
-            className="h-8 px-2 text-xs bg-bg-surface border border-[var(--border-subtle)] rounded text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-primary"
+      {sub === 'issues' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <IssueGroup title="Titres dupliqués" groups={data.duplicateTitles} />
+          <IssueGroup
+            title="Meta descriptions dupliquées"
+            groups={data.duplicateMetaDescriptions}
           />
-          {(['all', '2xx', '3xx', '4xx', '5xx', 'issues'] as StatusFilter[]).map(
-            (f) => (
+          <IssueGroup title="H1 dupliqués" groups={data.duplicateH1s} />
+          <IssueList title="Pages sans <title>" urls={data.missingTitles} />
+          <IssueList title="Pages sans meta description" urls={data.missingMetaDescriptions} />
+          <IssueList title="Pages sans H1" urls={data.missingH1} />
+          <IssueList title="Titres trop longs (> 60 car.)" urls={data.titleTooLong} />
+          <IssueList title="Titres trop courts (< 30 car.)" urls={data.titleTooShort} />
+          <IssueList title="Meta trop longues (> 160 car.)" urls={data.metaTooLong} />
+          <IssueList title="Ratio texte/HTML faible (< 10%)" urls={data.lowTextRatioPages} />
+          <IssueList title="Liens internes cassés (cibles 4xx/5xx)" urls={data.brokenInternalLinks} />
+          {issueCount === 0 && (
+            <p className="text-sm text-text-tertiary col-span-full py-6 text-center">
+              Rien à signaler — crawl technique propre.
+            </p>
+          )}
+        </div>
+      )}
+
+      {sub === 'table' && (
+        <div>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <input
+              type="search"
+              placeholder="Filtrer par URL"
+              value={filterInput}
+              onChange={(e) => setFilterInput(e.target.value)}
+              className="h-8 px-2 text-xs bg-bg-surface border border-[var(--border-subtle)] rounded text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-primary"
+            />
+            {(['all', '2xx', '3xx', '4xx', '5xx', 'issues'] as StatusFilter[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setStatusFilter(f)}
@@ -133,46 +185,43 @@ export function TechnicalCrawlTab({ data, cultural, programmatic }: Props) {
               >
                 {f === 'all' ? 'Tout' : f === 'issues' ? 'Avec problèmes' : f}
               </button>
-            ),
-          )}
-          <span className="text-xs text-text-tertiary ml-auto">
-            {filtered.length} / {rows.length} URLs
-          </span>
+            ))}
+            <span className="text-xs text-text-tertiary ml-auto">
+              {filtered.length} / {rows.length} URLs
+            </span>
+          </div>
+          <div className="overflow-x-auto border border-[var(--border-subtle)] rounded-md max-h-[70vh] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-bg-elevated text-text-tertiary sticky top-0">
+                <tr>
+                  <th className="text-left px-2 py-1.5 font-medium">URL</th>
+                  <th className="px-2 py-1.5 font-medium">Code</th>
+                  <th className="px-2 py-1.5 font-medium">Prof.</th>
+                  <th className="px-2 py-1.5 font-medium">Idx</th>
+                  <th className="px-2 py-1.5 font-medium">Title</th>
+                  <th className="px-2 py-1.5 font-medium">Meta</th>
+                  <th className="px-2 py-1.5 font-medium">H1</th>
+                  <th className="px-2 py-1.5 font-medium">Mots</th>
+                  <th className="px-2 py-1.5 font-medium">Liens int/ext</th>
+                  <th className="px-2 py-1.5 font-medium">Img (sans alt)</th>
+                  <th className="text-left px-2 py-1.5 font-medium">Problèmes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => (
+                  <Row key={r.url} r={r} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="overflow-x-auto border border-[var(--border-subtle)] rounded-md">
-          <table className="w-full text-xs">
-            <thead className="bg-bg-elevated text-text-tertiary">
-              <tr>
-                <th className="text-left px-2 py-1.5 font-medium">URL</th>
-                <th className="px-2 py-1.5 font-medium">Code</th>
-                <th className="px-2 py-1.5 font-medium">Prof.</th>
-                <th className="px-2 py-1.5 font-medium">Idx</th>
-                <th className="px-2 py-1.5 font-medium">Title</th>
-                <th className="px-2 py-1.5 font-medium">Meta</th>
-                <th className="px-2 py-1.5 font-medium">H1</th>
-                <th className="px-2 py-1.5 font-medium">Mots</th>
-                <th className="px-2 py-1.5 font-medium">Liens int/ext</th>
-                <th className="px-2 py-1.5 font-medium">Img (sans alt)</th>
-                <th className="text-left px-2 py-1.5 font-medium">Problèmes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r) => (
-                <Row key={r.url} r={r} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Cultural adaptation (multilingual sites) */}
-      {cultural?.isMultilingual && (
-        <CulturalSection cultural={cultural} />
       )}
 
-      {/* Programmatic SEO quality gates */}
-      {programmatic?.isProgrammatic && (
-        <ProgrammaticSection programmatic={programmatic} />
+      {sub === 'extra' && (
+        <div className="space-y-6">
+          {cultural?.isMultilingual && <CulturalSection cultural={cultural} />}
+          {programmatic?.isProgrammatic && <ProgrammaticSection programmatic={programmatic} />}
+        </div>
       )}
     </div>
   )
