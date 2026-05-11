@@ -348,8 +348,8 @@ export interface TechnicalCrawlSummary {
 
 export interface AuditRequest {
   url: string
-  includeSeoDeep?: boolean
-  agencyName?: string
+  /** Crawl depth — clamped server-side to 50 / 150 / 300. */
+  maxPages?: number
 }
 
 export type JobStatus = 'pending' | 'done' | 'failed'

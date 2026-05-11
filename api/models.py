@@ -651,8 +651,6 @@ class AuditResult(BaseModel):
 
 class AuditRequest(BaseModel):
     url: HttpUrl
-    includeSeoDeep: bool = False
-    agencyName: Optional[str] = None
     # Max pages to fully crawl. Clamped server-side to {50, 150, 300}.
     maxPages: int = 50
 
