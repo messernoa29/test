@@ -376,8 +376,10 @@ export interface TechnicalCrawlSummary {
 
 export interface AuditRequest {
   url: string
-  /** Crawl depth — clamped server-side to 50 / 150 / 300. */
+  /** Crawl depth — clamped server-side to 100 / 300 / 1000. */
   maxPages?: number
+  /** Site builder — adapts the recommendations. */
+  platform?: string
 }
 
 export type JobStatus = 'pending' | 'done' | 'failed'

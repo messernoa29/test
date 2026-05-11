@@ -196,11 +196,12 @@ export async function logout(): Promise<void> {
 export async function runAudit(
   url: string,
   maxPages = 300,
+  platform = 'unknown',
 ): Promise<AuditJobSummary> {
   return request<AuditJobSummary>('/audit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, maxPages }),
+    body: JSON.stringify({ url, maxPages, platform }),
   })
 }
 

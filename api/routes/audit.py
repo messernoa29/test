@@ -117,7 +117,7 @@ def run_audit(req: AuditRequest) -> AuditJobSummary:
     job_id = uuid.uuid4().hex
     domain = urlparse(url).netloc or url
     job = get_store().create_job(job_id, url, domain)
-    submit_audit(job_id, url, max_pages=req.maxPages)
+    submit_audit(job_id, url, max_pages=req.maxPages, platform=req.platform)
     return _summary(job)
 
 

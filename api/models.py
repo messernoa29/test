@@ -693,11 +693,21 @@ class AuditResult(BaseModel):
         return out
 
 
+# Site-building platforms — drives how concrete the LLM's "where to do it"
+# instructions are. "custom" = hand-coded, full control. "unknown" = generic.
+SitePlatform = Literal[
+    "unknown", "custom", "webflow", "wordpress", "shopify", "wix",
+    "squarespace", "bubble", "framer", "nextjs", "other",
+]
+
+
 class AuditRequest(BaseModel):
     url: HttpUrl
     # Pages to fetch for the technical crawl (link graph, status codes, dups…).
     # The LLM only analyses a small subset in detail. Clamped to {100,300,1000}.
     maxPages: int = 300
+    # Which tool the site was built with — adapts the recommendations.
+    platform: SitePlatform = "unknown"
 
     @field_validator("maxPages", mode="before")
     @classmethod
@@ -711,6 +721,16 @@ class AuditRequest(BaseModel):
         if n <= 300:
             return 300
         return 1000
+
+    @field_validator("platform", mode="before")
+    @classmethod
+    def _norm_platform(cls, v: object) -> str:
+        s = str(v or "unknown").strip().lower()
+        valid = {
+            "unknown", "custom", "webflow", "wordpress", "shopify", "wix",
+            "squarespace", "bubble", "framer", "nextjs", "other",
+        }
+        return s if s in valid else "unknown"
 
 
 JobStatus = Literal["pending", "done", "failed"]

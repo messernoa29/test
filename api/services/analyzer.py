@@ -351,17 +351,94 @@ def _time_boxed(fn: Callable, timeout_s: float, label: str):
         return None
 
 
+# Where to do SEO changes, per platform. Injected into the overview + per-page
+# prompts so the "actions" are tool-specific instead of "edit your <head>".
+_PLATFORM_HINTS: dict[str, str] = {
+    "custom": (
+        "Le site est codé sur mesure (HTML/templates maîtrisés). Les actions "
+        "peuvent référencer directement le code : balises <head>, templates, "
+        "robots.txt, sitemap.xml, headers serveur, build."
+    ),
+    "webflow": (
+        "Le site est sur Webflow. Adapte les actions à Webflow : meta/canonical/"
+        "schema via Page Settings → SEO et Custom Code (head/before-body) ; "
+        "redirections via Project Settings → Publishing → 301 redirects ; "
+        "alt d'image via le Asset panel ; pas d'accès au .htaccess ; sitemap "
+        "auto-généré (Project Settings → SEO)."
+    ),
+    "wordpress": (
+        "Le site est sur WordPress. Adapte les actions à WordPress : titles/"
+        "meta/canonical/schema via Yoast SEO ou Rank Math ; redirections via "
+        "le plugin Redirection ou .htaccess ; alt d'image dans la médiathèque ; "
+        "robots.txt/sitemap gérés par le plugin SEO ; perfs via un plugin de "
+        "cache (WP Rocket…) + lazy-load natif."
+    ),
+    "shopify": (
+        "Le site est sur Shopify. Adapte les actions : titles/meta via le "
+        "champ SEO de chaque produit/collection/page ; canonical et schema "
+        "Product gérés par le thème (theme.liquid) ; redirections via "
+        "Navigation → URL Redirects ; robots.txt éditable via robots.txt.liquid ; "
+        "sitemap auto à /sitemap.xml."
+    ),
+    "wix": (
+        "Le site est sur Wix. Adapte les actions : SEO via le Wix SEO Wiz et "
+        "les Settings de chaque page ; balises avancées via Settings → Custom "
+        "Code (header/body) ; redirections via Settings → SEO → URL Redirect "
+        "Manager ; structured data via les Markup Settings de page."
+    ),
+    "squarespace": (
+        "Le site est sur Squarespace. Adapte les actions : titles/meta via les "
+        "Page Settings (SEO tab) et Settings → SEO ; code custom via "
+        "Settings → Advanced → Code Injection ; redirections via "
+        "Settings → Advanced → URL Mappings ; alt via l'éditeur d'image."
+    ),
+    "bubble": (
+        "Le site est sur Bubble. Adapte les actions : SEO/meta dynamiques via "
+        "Settings → SEO/metatags et les champs SEO des pages ; attention au "
+        "rendu côté client (SPA) — recommander le plugin de SEO/SSR ou un "
+        "prerender ; sitemap via plugin ; pas de .htaccess (redirections via "
+        "workflows ou Cloudflare)."
+    ),
+    "framer": (
+        "Le site est sur Framer. Adapte les actions : meta/title/canonical via "
+        "les Page Settings (SEO) ; code custom via Site Settings → Custom Code ; "
+        "redirections via Site Settings → Redirects ; sitemap auto ; structured "
+        "data via Custom Code."
+    ),
+    "nextjs": (
+        "Le site est en Next.js. Adapte les actions : metadata via l'API "
+        "metadata (app router) ou next/head ; schema JSON-LD via un <script "
+        "type=application/ld+json> dans le layout/page ; redirections via "
+        "next.config.js (redirects) ; robots.txt/sitemap via app/robots.ts et "
+        "app/sitemap.ts ; vérifier SSR/SSG vs CSR pour les crawlers."
+    ),
+}
+
+
+def _platform_block(platform: str) -> str:
+    """Returns the platform-specific instruction block, or '' for unknown."""
+    hint = _PLATFORM_HINTS.get((platform or "").strip().lower())
+    if not hint:
+        return ""
+    return f"## Plateforme du site\n{hint}\nFormule les `actions` en conséquence.\n"
+
+
 def analyze(
     crawl: CrawlData,
     *,
     on_progress: Optional[Callable[[str], None]] = None,
     deadline_monotonic: Optional[float] = None,
+    platform: str = "unknown",
 ) -> AuditResult:
     """Run the full multi-pass analysis and return a merged AuditResult.
     `on_progress` receives status strings; `deadline_monotonic` (a time.monotonic
-    value) bounds the optional passes so the whole audit can't overrun."""
+    value) bounds the optional passes so the whole audit can't overrun.
+    `platform` adapts the recommendations to the site-builder used."""
     import time as _time
     _p = on_progress or (lambda _m: None)
+    pblock = _platform_block(platform)
+    if pblock:
+        _p(f"Recommandations adaptées à la plateforme : {platform}")
 
     def _budget(default_s: float) -> float:
         """Remaining time before the deadline, clamped to (5, default_s)."""
@@ -375,7 +452,7 @@ def analyze(
     # Core passes (overview + per-page + missing) are required — wrap each in a
     # generous time box so a single stuck Gemini call can't hang the worker.
     _p("Vue d'ensemble : scoring des 6 axes…")
-    overview = _time_boxed(lambda: _run_overview(crawl, crawl_json), _budget(180), "overview")
+    overview = _time_boxed(lambda: _run_overview(crawl, crawl_json, pblock), _budget(180), "overview")
     if not isinstance(overview, dict):
         raise ValueError("Overview pass failed or timed out")
     _sanitize_sections(overview)
@@ -384,7 +461,7 @@ def analyze(
     selected_count = len(_select_pages_for_detail(crawl)[0])
     _p(f"Analyse page par page ({selected_count} pages représentatives)…")
     pages = _time_boxed(
-        lambda: _run_pages_batched(crawl, on_progress=_p), _budget(420), "pages"
+        lambda: _run_pages_batched(crawl, on_progress=_p, platform_block=pblock), _budget(420), "pages"
     ) or []
     pages = _dedupe_pages(pages)
     _sanitize_pages(pages)
@@ -491,7 +568,7 @@ def _count_severity(merged: dict, target: str) -> int:
 # Stages
 
 
-def _run_overview(crawl: CrawlData, crawl_json: str) -> dict:
+def _run_overview(crawl: CrawlData, crawl_json: str, platform_block: str = "") -> dict:
     prompt = _OVERVIEW_TEMPLATE.format(
         domain=crawl.domain,
         url=crawl.url,
@@ -504,6 +581,8 @@ def _run_overview(crawl: CrawlData, crawl_json: str) -> dict:
         technical_block=_format_technical(crawl),
         crawl_table_block=_format_technical_crawl(crawl),
     )
+    if platform_block:
+        prompt = platform_block + "\n" + prompt
     response = get_llm_client().generate(
         system=_SYSTEM, user_prompt=prompt, max_tokens=16000,
         enable_web_search=False,  # the crawl payload is exhaustive; web_search
@@ -573,7 +652,10 @@ def _select_pages_for_detail(crawl: CrawlData) -> tuple[list[CrawlPage], GroupIn
 
 
 def _run_pages_batched(
-    crawl: CrawlData, *, on_progress: Optional[Callable[[str], None]] = None
+    crawl: CrawlData,
+    *,
+    on_progress: Optional[Callable[[str], None]] = None,
+    platform_block: str = "",
 ) -> list[dict]:
     """Analyse pages in fixed-size batches so no single response overruns.
     Template groups (e.g. 200 near-identical blog posts) are represented by a
@@ -595,11 +677,11 @@ def _run_pages_batched(
             i, len(batches), crawl.domain, len(batch),
         )
         _p(f"Pages : lot {i}/{len(batches)}…")
-        payload = _run_single_pages_batch(crawl.domain, batch, attempt=1)
+        payload = _run_single_pages_batch(crawl.domain, batch, attempt=1, platform_block=platform_block)
         if payload is None:
             _p(f"Pages : lot {i}/{len(batches)} — nouvelle tentative")
             time.sleep(5)
-            payload = _run_single_pages_batch(crawl.domain, batch, attempt=2)
+            payload = _run_single_pages_batch(crawl.domain, batch, attempt=2, platform_block=platform_block)
 
         batch_pages: list = []
         if payload is not None:
@@ -616,7 +698,7 @@ def _run_pages_batched(
         if not batch_pages and len(batch) > 1:
             _p(f"Pages : lot {i}/{len(batches)} — analyse page par page")
             for p in batch:
-                single = _run_single_pages_batch(crawl.domain, [p], attempt=1)
+                single = _run_single_pages_batch(crawl.domain, [p], attempt=1, platform_block=platform_block)
                 if single and isinstance(single.get("pages"), list) and single["pages"]:
                     batch_pages.extend(single["pages"])
                 else:
@@ -694,6 +776,7 @@ def _run_single_pages_batch(
     *,
     attempt: int,
     raise_on_fail: bool = False,
+    platform_block: str = "",
 ) -> Optional[dict]:
     batch_json = json.dumps(
         [
@@ -714,6 +797,8 @@ def _run_single_pages_batch(
         batch_count=len(batch),
         batch_json=batch_json,
     )
+    if platform_block:
+        prompt = platform_block + "\n" + prompt
     try:
         response = get_llm_client().generate(
             system=_SYSTEM, user_prompt=prompt, max_tokens=16000,

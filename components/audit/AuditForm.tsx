@@ -14,10 +14,26 @@ const DEPTH_OPTIONS = [
   { value: 1000, label: '1000 pages crawlées — gros sites (~15-30 min)' },
 ] as const
 
+// Site builder — adapts the recommendations to the tool (where to do each fix).
+const PLATFORM_OPTIONS = [
+  { value: 'unknown', label: 'Plateforme inconnue' },
+  { value: 'custom', label: 'Codé sur mesure' },
+  { value: 'wordpress', label: 'WordPress' },
+  { value: 'webflow', label: 'Webflow' },
+  { value: 'shopify', label: 'Shopify' },
+  { value: 'wix', label: 'Wix' },
+  { value: 'squarespace', label: 'Squarespace' },
+  { value: 'bubble', label: 'Bubble' },
+  { value: 'framer', label: 'Framer' },
+  { value: 'nextjs', label: 'Next.js / React' },
+  { value: 'other', label: 'Autre' },
+] as const
+
 export function AuditForm() {
   const router = useRouter()
   const [url, setUrl] = useState('')
   const [maxPages, setMaxPages] = useState<number>(300)
+  const [platform, setPlatform] = useState<string>('unknown')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -27,7 +43,7 @@ export function AuditForm() {
     setError(null)
     setSubmitting(true)
     try {
-      const job = await runAudit(url, maxPages)
+      const job = await runAudit(url, maxPages, platform)
       router.push(`/audit/${job.id}`)
     } catch (err) {
       setError((err as Error).message || "Impossible de lancer l'audit.")
@@ -48,18 +64,6 @@ export function AuditForm() {
           placeholder="https://exemple.com"
           className="flex-1 h-10 px-3 bg-bg-surface border border-[var(--border-default)] rounded-md text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-primary focus:ring-2 focus:ring-[var(--primary-dim)] transition text-sm disabled:opacity-60"
         />
-        <select
-          value={maxPages}
-          onChange={(e) => setMaxPages(Number(e.target.value))}
-          disabled={submitting}
-          className="h-10 px-3 bg-bg-surface border border-[var(--border-default)] rounded-md text-text-primary text-sm disabled:opacity-60"
-        >
-          {DEPTH_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
         <button
           type="submit"
           disabled={submitting}
@@ -68,14 +72,43 @@ export function AuditForm() {
           {submitting ? 'Création...' : 'Analyser'}
         </button>
       </div>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <select
+          value={maxPages}
+          onChange={(e) => setMaxPages(Number(e.target.value))}
+          disabled={submitting}
+          className="flex-1 h-10 px-3 bg-bg-surface border border-[var(--border-default)] rounded-md text-text-primary text-sm disabled:opacity-60"
+          aria-label="Profondeur du crawl"
+        >
+          {DEPTH_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={platform}
+          onChange={(e) => setPlatform(e.target.value)}
+          disabled={submitting}
+          className="flex-1 h-10 px-3 bg-bg-surface border border-[var(--border-default)] rounded-md text-text-primary text-sm disabled:opacity-60"
+          aria-label="Plateforme du site"
+        >
+          {PLATFORM_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
       {error && (
         <p className="text-xs text-[var(--status-critical-text)]">{error}</p>
       )}
       <p className="text-xs text-text-tertiary">
-        La profondeur fixe le nombre de pages crawlées techniquement (codes
-        HTTP, maillage, doublons…). L&apos;analyse IA détaillée porte sur les
-        ~30 pages les plus importantes quelle que soit la profondeur. Vous
-        pouvez quitter la page, l&apos;audit continue côté serveur.
+        La profondeur fixe le nombre de pages crawlées techniquement ; l&apos;IA
+        analyse en détail les ~30 pages les plus importantes. La plateforme
+        adapte les actions recommandées (ex. « via Yoast » sur WordPress, « via
+        Page Settings → SEO » sur Webflow). Vous pouvez quitter la page,
+        l&apos;audit continue côté serveur.
       </p>
     </form>
   )

@@ -103,11 +103,13 @@ def _sweep_stale_audits() -> None:
             logger.warning("Sweeper error: %s", e)
 
 
-def submit_audit(job_id: str, url: str, max_pages: int = 50) -> None:
+def submit_audit(
+    job_id: str, url: str, max_pages: int = 50, platform: str = "unknown"
+) -> None:
     """Queue a pipeline run on the shared pool."""
     with _audit_started_lock:
         _audit_started_at[job_id] = _time.monotonic()
-    _get_executor().submit(_run, job_id, url, max_pages)
+    _get_executor().submit(_run, job_id, url, max_pages, platform)
 
 
 def shutdown_executor(wait: bool = False) -> None:
@@ -122,7 +124,7 @@ def shutdown_executor(wait: bool = False) -> None:
             _executor = None
 
 
-def _run(job_id: str, url: str, max_pages: int = 50) -> None:
+def _run(job_id: str, url: str, max_pages: int = 50, platform: str = "unknown") -> None:
     store = get_store()
     from api.services import progress
     started = _time.monotonic()
@@ -201,6 +203,7 @@ def _run(job_id: str, url: str, max_pages: int = 50) -> None:
             crawl_data,
             on_progress=lambda m: progress.add(job_id, m),
             deadline_monotonic=deadline_at,
+            platform=platform,
         )
         progress.add(job_id, "Analyse IA terminée — assemblage du rapport")
         enriched_pages = _merge_page_technical(audit.pages, crawl_data)
