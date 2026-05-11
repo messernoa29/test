@@ -15,3 +15,4 @@ sqlalchemy>=2.0,<3.0.0
 apscheduler>=3.10,<4.0
 # psycopg is only required in prod (DATABASE_URL=postgresql://...).
 # Install with: pip install "psycopg[binary]>=3.1"
+pytest>=8.0
