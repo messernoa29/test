@@ -483,6 +483,20 @@ def _contact_card(c: ProspectContact, styles: dict) -> Table:
             "Aussi rattaché·e à : " + _esc(" · ".join(c.otherAffiliations), limit=400),
             styles["mono_sec"],
         ))
+    if c.searchLinks:
+        order = [
+            ("linkedin_profile", "Profil LinkedIn"),
+            ("linkedin", "Chercher sur LinkedIn"),
+            ("pappers", "Pappers"),
+            ("societe", "Societe.com"),
+        ]
+        parts = [
+            f'<a href="{html.escape(c.searchLinks[k], quote=True)}"><font color="#B8892D">{lab}</font></a>'
+            for k, lab in order if c.searchLinks.get(k)
+        ]
+        if parts:
+            left.append(Spacer(1, 3))
+            left.append(Paragraph("Rechercher : " + "  ·  ".join(parts), styles["mono_sec"]))
     right = [_confidence_badge(c.confidence, styles)]
     t = Table([[left, right]], colWidths=[CONTENT_WIDTH - 70 - 24, 70])
     t.setStyle(TableStyle([

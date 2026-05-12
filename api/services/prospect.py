@@ -22,7 +22,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
 import httpx
 
@@ -248,6 +248,7 @@ def run_pipeline(sheet: ProspectSheet) -> ProspectSheet:
 
         identity, persona = _enrich_with_llm(sheet.url, sheet.domain, pages, stack)
         identity, persona = _verify_source_urls(identity, persona)
+        persona = _add_search_links(persona, identity)
         return sheet.model_copy(
             update={
                 "status": "done",
@@ -653,6 +654,34 @@ def _extract_json(response: LLMResponse, *, tag: str) -> Optional[dict]:
         logger.warning("%s JSON invalid: %s", tag, e)
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _add_search_links(
+    persona: ProspectPersona, identity: ProspectCompanyIdentity
+) -> ProspectPersona:
+    """Attach pre-filled people-search URLs (LinkedIn / Pappers / Societe.com)
+    to each named contact, so a logged-in salesperson can open the right
+    profile and read the coordinates themselves. We don't fetch anything here."""
+    company = (identity.name or "").strip()
+    new_contacts: list = []
+    for c in persona.contacts:
+        full = " ".join(b for b in [c.firstName, c.lastName] if (b or "").strip()).strip()
+        if not full:
+            new_contacts.append(c)
+            continue
+        q_person = quote_plus(full)
+        q_combo = quote_plus(f"{full} {company}".strip())
+        links = {
+            "linkedin": f"https://www.linkedin.com/search/results/people/?keywords={q_combo}",
+            "pappers": f"https://www.pappers.fr/recherche?q={q_combo}",
+            "societe": f"https://www.societe.com/cgi-bin/search?champs={q_person}",
+            "google": f"https://www.google.com/search?q={q_combo}",
+        }
+        # keep an existing public linkedin profile URL if the LLM found one
+        if (c.linkedin or "").strip():
+            links["linkedin_profile"] = c.linkedin.strip()
+        new_contacts.append(c.model_copy(update={"searchLinks": links}))
+    return persona.model_copy(update={"contacts": new_contacts})
 
 
 def _check_url_alive(client: httpx.Client, url: str) -> Optional[bool]:

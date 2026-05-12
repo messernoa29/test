@@ -5978,6 +5978,13 @@
             "type": "array",
             "title": "Otheraffiliations"
           },
+          "searchLinks": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Searchlinks"
+          },
           "confidence": {
             "type": "string",
             "enum": [
