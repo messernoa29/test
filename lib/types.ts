@@ -595,10 +595,25 @@ export interface ProspectStackByCategory {
   other: DetectedTech[]
 }
 
+export interface ProspectContact {
+  firstName: string
+  lastName: string
+  role: string
+  email: string
+  phone: string
+  linkedin: string
+  source: string
+  confidence: TechConfidence
+}
+
 export interface ProspectPersona {
   likelyContactRoles: string[]
   likelyPriorities: string[]
   approachAngles: string[]
+  contacts: ProspectContact[]
+  companyEmails: string[]
+  companyPhones: string[]
+  companyAddress: string
 }
 
 export interface ProspectSheet {

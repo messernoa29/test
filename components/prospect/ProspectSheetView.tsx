@@ -129,17 +129,93 @@ export function ProspectSheetView({ sheet }: Props) {
           )}
         </Card>
 
-        {/* 3. Persona décideur + angle d'approche */}
-        <Card label="3 · Persona décideur & angles d'approche" tone="primary">
+        {/* 3. Persona décideur + angle d'approche + contacts */}
+        <Card label="3 · Persona décideur, contacts & angles d'approche" tone="primary">
           {persona &&
           (persona.likelyContactRoles.length > 0 ||
             persona.likelyPriorities.length > 0 ||
-            persona.approachAngles.length > 0) ? (
+            persona.approachAngles.length > 0 ||
+            (persona.contacts?.length ?? 0) > 0 ||
+            (persona.companyEmails?.length ?? 0) > 0 ||
+            (persona.companyPhones?.length ?? 0) > 0 ||
+            !!persona.companyAddress?.trim()) ? (
             <div className="space-y-5">
+              {(persona.contacts?.length ?? 0) > 0 && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary mb-2">
+                    Personnes identifiées
+                  </div>
+                  <div className="space-y-2">
+                    {persona.contacts!.map((c, i) => (
+                      <div
+                        key={i}
+                        className="border border-[var(--border-subtle)] rounded-md p-3 bg-bg-elevated"
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-text-primary">
+                            {[c.firstName, c.lastName].filter(Boolean).join(' ') || '(nom inconnu)'}
+                          </span>
+                          {c.role && (
+                            <span className="text-xs text-text-secondary">— {c.role}</span>
+                          )}
+                          <ConfidenceDot c={c.confidence} />
+                          {c.source && (
+                            <span className="text-[10px] text-text-tertiary">({c.source})</span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+                          {c.email && (
+                            <a href={`mailto:${c.email}`} className="text-primary hover:underline">
+                              ✉ {c.email}
+                            </a>
+                          )}
+                          {c.phone && (
+                            <a href={`tel:${c.phone.replace(/[^\d+]/g, '')}`} className="text-primary hover:underline">
+                              ☎ {c.phone}
+                            </a>
+                          )}
+                          {c.linkedin && (
+                            <a href={c.linkedin} target="_blank" rel="noreferrer" className="text-primary hover:underline truncate max-w-[260px]">
+                              in {c.linkedin.replace(/^https?:\/\/(www\.)?linkedin\.com\//, '')}
+                            </a>
+                          )}
+                          {!c.email && !c.phone && !c.linkedin && (
+                            <span className="text-text-tertiary">Pas de coordonnée directe trouvée</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {((persona.companyEmails?.length ?? 0) > 0 ||
+                (persona.companyPhones?.length ?? 0) > 0 ||
+                !!persona.companyAddress?.trim()) && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary mb-2">
+                    Coordonnées générales de l'entreprise
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(persona.companyEmails ?? []).map((e, i) => (
+                      <a key={`e${i}`} href={`mailto:${e}`} className="inline-flex items-center px-2 py-0.5 rounded border border-[var(--border-default)] bg-bg-elevated text-xs text-primary hover:underline">
+                        ✉ {e}
+                      </a>
+                    ))}
+                    {(persona.companyPhones ?? []).map((p, i) => (
+                      <a key={`p${i}`} href={`tel:${p.replace(/[^\d+]/g, '')}`} className="inline-flex items-center px-2 py-0.5 rounded border border-[var(--border-default)] bg-bg-elevated text-xs text-primary hover:underline">
+                        ☎ {p}
+                      </a>
+                    ))}
+                  </div>
+                  {persona.companyAddress?.trim() && (
+                    <p className="mt-2 text-sm text-text-primary">{persona.companyAddress}</p>
+                  )}
+                </div>
+              )}
               {persona.likelyContactRoles.length > 0 && (
                 <div>
                   <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary mb-2">
-                    Contact·s probable·s
+                    Rôle·s probable·s à contacter
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {persona.likelyContactRoles.map((r, i) => (

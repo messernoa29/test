@@ -44,13 +44,14 @@ _USER_AGENT = (
 _REQUEST_TIMEOUT = 15.0
 # Relative paths probed in addition to the home page (first hits win).
 _KEY_PATHS = [
+    "/contact", "/contact/", "/nous-contacter", "/contactez-nous",
+    "/equipe", "/equipe/", "/notre-equipe", "/team", "/our-team", "/about/team",
     "/a-propos", "/a-propos/", "/about", "/about/", "/about-us",
     "/qui-sommes-nous", "/notre-histoire",
-    "/contact", "/contact/", "/nous-contacter",
-    "/mentions-legales", "/mentions-legales/", "/legal", "/legal-notice",
+    "/mentions-legales", "/mentions-legales/", "/legal", "/legal-notice", "/imprint",
 ]
-_MAX_EXTRA_PAGES = 3
-_MAX_TEXT_EXCERPT = 6000
+_MAX_EXTRA_PAGES = 5
+_MAX_TEXT_EXCERPT = 7000
 
 
 _SYSTEM = (
@@ -81,6 +82,11 @@ Extrait du texte des pages (tronqué) :
 Stack technique DÉJÀ détecté automatiquement (ne le recopie pas, sers-t'en pour le persona) :
 {stack_summary}
 
+Coordonnées brutes extraites automatiquement du site (à attribuer aux personnes / à l'entreprise) :
+{contacts_raw}
+
+Utilise web_search si nécessaire pour : vérifier la localisation/l'année de création, et trouver des coordonnées publiques (annuaires pro type Pages Jaunes / Societe.com / site officiel) — NE consulte PAS LinkedIn par scraping ; tu peux inclure une URL LinkedIn publique si elle apparaît dans tes résultats de recherche.
+
 Produis :
 - identity :
   - name : raison sociale ou nom commercial deviné depuis le site/titre (vide si vraiment indéterminable)
@@ -94,7 +100,13 @@ Produis :
 - persona :
   - likelyContactRoles : 1-3 rôles probables à contacter (ex : "Dirigeant·e", "Responsable marketing", "Responsable e-commerce", "DSI") selon la taille et le secteur
   - likelyPriorities : 2-4 priorités / douleurs probables de ce décideur
-  - approachAngles : 2-4 accroches de prospection PERSONNALISÉES, ancrées sur ce qui a réellement été observé sur le site (ex : "site WordPress sans plugin SEO détecté → ouverture sur l'optimisation on-page" ; "aucun Meta Pixel détecté → ils ne font peut-être pas de retargeting")
+  - approachAngles : 2-4 accroches de prospection PERSONNALISÉES, ancrées sur ce qui a réellement été observé sur le site
+  - contacts : liste des PERSONNES nommées trouvées (idéalement les décideurs). Pour chacune : firstName, lastName, role (fonction si connue), email (UNIQUEMENT s'il apparaît tel quel sur le site / dans une source publique ; vide sinon — ne devine PAS), phone, linkedin (URL publique seulement), source (ex : "site:/equipe", "mentions légales", "annuaire web"), confidence ("high" si trouvé verbatim, "medium" si déduit avec un bon faisceau, "low" si hypothèse). Liste vide si aucune personne identifiable.
+  - companyEmails : emails GÉNÉRIQUES de l'entreprise (contact@, info@, accueil@…) — pas ceux d'une personne
+  - companyPhones : numéros de téléphone généraux de l'entreprise
+  - companyAddress : adresse postale complète si trouvée, vide sinon
+
+RÈGLE STRICTE sur les contacts : n'écris un email/téléphone/nom QUE s'il provient réellement du site ou d'une source web publique. Si tu n'es pas sûr, laisse vide. Mieux vaut un champ vide qu'une fausse coordonnée.
 
 Sortie STRICTE :
 
@@ -113,7 +125,13 @@ Sortie STRICTE :
   "persona": {{
     "likelyContactRoles": ["..."],
     "likelyPriorities": ["..."],
-    "approachAngles": ["..."]
+    "approachAngles": ["..."],
+    "contacts": [
+      {{"firstName": "...", "lastName": "...", "role": "...", "email": "...", "phone": "...", "linkedin": "...", "source": "...", "confidence": "high"}}
+    ],
+    "companyEmails": ["..."],
+    "companyPhones": ["..."],
+    "companyAddress": "..."
   }}
 }}
 </PROSPECT_JSON>
@@ -230,6 +248,82 @@ _META_DESC_RE = re.compile(
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
+# Contact extraction.
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
+_MAILTO_RE = re.compile(r'mailto:([^"\'?\s>]+)', re.IGNORECASE)
+_TEL_RE = re.compile(r'tel:([^"\'?\s>]+)', re.IGNORECASE)
+# French + international-ish phone patterns shown on sites.
+_PHONE_RE = re.compile(
+    r"(?<![\d/])(?:\+?\d{1,3}[\s.\-]?)?(?:\(?\d{1,4}\)?[\s.\-]?){2,5}\d{2,4}(?![\d/])"
+)
+_LINKEDIN_RE = re.compile(
+    r'https?://(?:[a-z]{2,3}\.)?linkedin\.com/(?:in|company)/[A-Za-z0-9\-_%]+',
+    re.IGNORECASE,
+)
+# Junk emails to drop (image hashes, example.com, sentry, etc.).
+_EMAIL_JUNK = re.compile(
+    r"(@(?:sentry|example|domain|email|wixpress|sentry-cdn|godaddy)\.|"
+    r"\.(png|jpe?g|gif|webp|svg|css|js|woff2?)$|^[0-9a-f]{16,}@)",
+    re.IGNORECASE,
+)
+
+
+def _extract_contacts_raw(pages: list[tuple[str, str, dict]], site_domain: str) -> dict:
+    """Pull emails / phones / LinkedIn URLs from the fetched HTML. Returns a
+    dict the prompt can show the LLM so it can attribute them to people."""
+    emails: set[str] = set()
+    phones: set[str] = set()
+    linkedins: set[str] = set()
+    per_page: list[str] = []
+    bare_domain = site_domain.split(":")[0].lower().lstrip("www.")
+    for page_url, html, _ in pages:
+        page_emails: set[str] = set()
+        for m in _MAILTO_RE.finditer(html):
+            e = m.group(1).strip().lower()
+            if "@" in e and not _EMAIL_JUNK.search(e):
+                page_emails.add(e)
+        for m in _EMAIL_RE.finditer(html):
+            e = m.group(0).strip().lower()
+            if not _EMAIL_JUNK.search(e):
+                page_emails.add(e)
+        page_phones: set[str] = set()
+        for m in _TEL_RE.finditer(html):
+            v = re.sub(r"[^\d+]", "", m.group(1))
+            if 7 <= len(re.sub(r"\D", "", v)) <= 15:
+                page_phones.add(m.group(1).strip())
+        # also scan visible text for phone-looking sequences (conservative:
+        # require a separator or a leading + so we don't grab bare digit runs).
+        vis = _visible_text(html)
+        for m in _PHONE_RE.finditer(vis):
+            raw = m.group(0).strip()
+            digits = re.sub(r"\D", "", raw)
+            has_sep = bool(re.search(r"[\s.\-()]", raw)) or raw.startswith("+")
+            if has_sep and 9 <= len(digits) <= 13:
+                page_phones.add(raw)
+        page_links = {m.group(0) for m in _LINKEDIN_RE.finditer(html)}
+        emails |= page_emails
+        phones |= page_phones
+        linkedins |= page_links
+        if page_emails or page_phones or page_links:
+            bits = []
+            if page_emails:
+                bits.append("emails: " + ", ".join(sorted(page_emails)[:15]))
+            if page_phones:
+                bits.append("téléphones: " + ", ".join(sorted(page_phones)[:10]))
+            if page_links:
+                bits.append("linkedin: " + ", ".join(sorted(page_links)[:10]))
+            per_page.append(f"{page_url} → " + " ; ".join(bits))
+    # Prefer emails on the company's own domain (more likely real contacts).
+    domain_emails = sorted(e for e in emails if bare_domain in e)
+    other_emails = sorted(e for e in emails if bare_domain not in e)
+    return {
+        "domainEmails": domain_emails[:25],
+        "otherEmails": other_emails[:15],
+        "phones": sorted(phones)[:15],
+        "linkedins": sorted(linkedins)[:15],
+        "perPage": per_page[:12],
+    }
+
 
 def _extract_title(html: str) -> str:
     m = _TITLE_RE.search(html)
@@ -308,6 +402,20 @@ def _enrich_with_llm(
         raw = titles[0].split("→", 1)[-1].strip()
         fallback_name = re.split(r"\s+[|\-–—·»]\s+", raw)[0].strip()[:120]
 
+    contacts_raw = _extract_contacts_raw(pages, domain)
+    cr_parts: list[str] = []
+    if contacts_raw["domainEmails"]:
+        cr_parts.append("Emails sur le domaine : " + ", ".join(contacts_raw["domainEmails"]))
+    if contacts_raw["otherEmails"]:
+        cr_parts.append("Autres emails vus : " + ", ".join(contacts_raw["otherEmails"]))
+    if contacts_raw["phones"]:
+        cr_parts.append("Téléphones vus : " + ", ".join(contacts_raw["phones"]))
+    if contacts_raw["linkedins"]:
+        cr_parts.append("LinkedIn vus : " + ", ".join(contacts_raw["linkedins"]))
+    if contacts_raw["perPage"]:
+        cr_parts.append("Par page :\n  " + "\n  ".join(contacts_raw["perPage"]))
+    contacts_raw_text = "\n".join(cr_parts) if cr_parts else "(aucune coordonnée trouvée automatiquement sur le site)"
+
     prompt = _TEMPLATE.format(
         url=url,
         domain=domain,
@@ -315,6 +423,7 @@ def _enrich_with_llm(
         metas="\n".join(metas) or "(aucune)",
         excerpt=excerpt or "(texte indisponible)",
         stack_summary=_stack_summary(stack),
+        contacts_raw=contacts_raw_text,
     )
 
     try:

@@ -1026,12 +1026,32 @@ class ProspectStackByCategory(BaseModel):
     other: list[DetectedTech] = Field(default_factory=list)
 
 
+class ProspectContact(BaseModel):
+    """A named person at the prospect (from the site or public directories)."""
+
+    firstName: str = ""
+    lastName: str = ""
+    role: str = ""          # job title / function if known
+    email: str = ""         # only if found verbatim
+    phone: str = ""
+    linkedin: str = ""      # only if a public LinkedIn URL was found
+    source: str = ""        # where it came from: "site:/equipe", "mentions légales", "annuaire web"…
+    confidence: Literal["high", "medium", "low"] = "medium"  # low = inferred (e.g. guessed email)
+
+
 class ProspectPersona(BaseModel):
-    """Likely decision-maker + tailored prospecting angles."""
+    """Likely decision-maker + tailored prospecting angles + real contacts."""
 
     likelyContactRoles: list[str] = Field(default_factory=list)
     likelyPriorities: list[str] = Field(default_factory=list)
     approachAngles: list[str] = Field(default_factory=list)
+    # Named people found, ideally the decision-makers.
+    contacts: list[ProspectContact] = Field(default_factory=list)
+    # Company-level coordinates (generic inbox, switchboard, address) not tied
+    # to a specific person.
+    companyEmails: list[str] = Field(default_factory=list)
+    companyPhones: list[str] = Field(default_factory=list)
+    companyAddress: str = ""
 
 
 class ProspectSheet(BaseModel):

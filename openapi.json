@@ -5863,6 +5863,58 @@
         "title": "ProspectCompanyIdentity",
         "description": "Who the company is — guessed from the site + light web search."
       },
+      "ProspectContact": {
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "title": "Firstname",
+            "default": ""
+          },
+          "lastName": {
+            "type": "string",
+            "title": "Lastname",
+            "default": ""
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": ""
+          },
+          "email": {
+            "type": "string",
+            "title": "Email",
+            "default": ""
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone",
+            "default": ""
+          },
+          "linkedin": {
+            "type": "string",
+            "title": "Linkedin",
+            "default": ""
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": ""
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidence",
+            "default": "medium"
+          }
+        },
+        "type": "object",
+        "title": "ProspectContact",
+        "description": "A named person at the prospect (from the site or public directories)."
+      },
       "ProspectPersona": {
         "properties": {
           "likelyContactRoles": {
@@ -5885,11 +5937,37 @@
             },
             "type": "array",
             "title": "Approachangles"
+          },
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/ProspectContact"
+            },
+            "type": "array",
+            "title": "Contacts"
+          },
+          "companyEmails": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Companyemails"
+          },
+          "companyPhones": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Companyphones"
+          },
+          "companyAddress": {
+            "type": "string",
+            "title": "Companyaddress",
+            "default": ""
           }
         },
         "type": "object",
         "title": "ProspectPersona",
-        "description": "Likely decision-maker + tailored prospecting angles."
+        "description": "Likely decision-maker + tailored prospecting angles + real contacts."
       },
       "ProspectRequest": {
         "properties": {
