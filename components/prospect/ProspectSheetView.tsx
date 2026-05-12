@@ -1,8 +1,10 @@
 'use client'
 
 import Link from 'next/link'
+import { prospectPdfUrl } from '@/lib/api'
 import type {
   DetectedTech,
+  ProspectParentCompany,
   ProspectSheet,
   ProspectStackByCategory,
   TechConfidence,
@@ -36,12 +38,22 @@ export function ProspectSheetView({ sheet }: Props) {
               {sheet.domain}
             </a>
           </div>
-          <Link
-            href="/prospect"
-            className="inline-flex h-9 px-3 items-center bg-bg-surface text-text-secondary border border-[var(--border-default)] rounded-md font-medium text-sm hover:bg-bg-elevated hover:text-text-primary transition-colors"
-          >
-            ← Toutes les fiches
-          </Link>
+          <div className="flex items-center gap-2">
+            {sheet.status === 'done' && (
+              <a
+                href={prospectPdfUrl(sheet.id)}
+                className="inline-flex h-9 px-3 items-center bg-primary text-bg-page rounded-md font-medium text-sm hover:opacity-90 transition-opacity"
+              >
+                ↓ Télécharger le PDF
+              </a>
+            )}
+            <Link
+              href="/prospect"
+              className="inline-flex h-9 px-3 items-center bg-bg-surface text-text-secondary border border-[var(--border-default)] rounded-md font-medium text-sm hover:bg-bg-elevated hover:text-text-primary transition-colors"
+            >
+              ← Toutes les fiches
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -99,6 +111,9 @@ export function ProspectSheetView({ sheet }: Props) {
                     ))}
                   </div>
                 </div>
+              )}
+              {identity.parentCompany && identity.parentCompany.name.trim() && (
+                <ParentCompanyBlock pc={identity.parentCompany} />
               )}
             </div>
           ) : (
@@ -159,21 +174,7 @@ export function ProspectSheetView({ sheet }: Props) {
                             <span className="text-xs text-text-secondary">— {c.role}</span>
                           )}
                           <ConfidenceDot c={c.confidence} />
-                          {c.source && (
-                            c.sourceUrl ? (
-                              <a
-                                href={c.sourceUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-[10px] text-text-tertiary hover:text-primary hover:underline"
-                                title={c.sourceUrl}
-                              >
-                                source : {c.source} ↗
-                              </a>
-                            ) : (
-                              <span className="text-[10px] text-text-tertiary">({c.source})</span>
-                            )
-                          )}
+                          <SourceLink source={c.source} url={c.sourceUrl} ok={c.sourceUrlOk} />
                         </div>
                         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
                           {c.email && (
@@ -317,6 +318,89 @@ function TechGroup({ label, items }: { label: string; items: DetectedTech[] }) {
           </span>
         ))}
       </div>
+    </div>
+  )
+}
+
+function SourceLink({
+  source,
+  url,
+  ok,
+}: {
+  source?: string
+  url?: string
+  ok?: boolean | null
+}) {
+  if (!source && !url) return null
+  const dead = ok === false && !!url
+  const label = source || 'source'
+  return (
+    <span className="text-[10px] inline-flex items-center gap-1">
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className={
+            dead
+              ? 'text-[var(--status-critical-text)] hover:underline'
+              : 'text-text-tertiary hover:text-primary hover:underline'
+          }
+          title={dead ? `${url} — lien mort (404), à vérifier manuellement` : url}
+        >
+          source : {label} ↗
+        </a>
+      ) : (
+        <span className="text-text-tertiary">({label})</span>
+      )}
+      {dead && (
+        <span
+          className="text-[var(--status-critical-text)]"
+          title="Lien mort (404) — à vérifier manuellement"
+        >
+          ⚠ lien mort
+        </span>
+      )}
+    </span>
+  )
+}
+
+function ParentCompanyBlock({ pc }: { pc: ProspectParentCompany }) {
+  return (
+    <div className="border border-[var(--border-subtle)] rounded-md p-4 bg-bg-elevated">
+      <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary mb-2">
+        Groupe / maison-mère
+      </div>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-sm font-semibold text-text-primary">{pc.name}</span>
+        {pc.relation && (
+          <span className="text-xs text-text-secondary">— {pc.relation}</span>
+        )}
+        <SourceLink source={pc.source} url={pc.website || pc.sourceUrl} ok={pc.sourceUrlOk} />
+      </div>
+      {(pc.location || pc.notes) && (
+        <p className="mt-1 text-sm text-text-primary leading-relaxed">
+          {[pc.location, pc.notes].filter(Boolean).join(' · ')}
+        </p>
+      )}
+      {pc.contacts.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[11px] uppercase tracking-wider font-medium text-text-tertiary mb-1.5">
+            Contacts du groupe
+          </div>
+          <div className="space-y-1.5">
+            {pc.contacts.map((c, i) => (
+              <div key={i} className="flex items-center gap-2 flex-wrap text-sm">
+                <span className="font-medium text-text-primary">
+                  {[c.firstName, c.lastName].filter(Boolean).join(' ') || '(nom inconnu)'}
+                </span>
+                {c.role && <span className="text-xs text-text-secondary">— {c.role}</span>}
+                <SourceLink source={c.source} url={c.sourceUrl} ok={c.sourceUrlOk} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

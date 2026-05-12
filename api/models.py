@@ -1002,6 +1002,31 @@ class DetectedTech(BaseModel):
     evidence: str = ""
 
 
+class ProspectParentContact(BaseModel):
+    """A named person at the parent company / group (a leader or a contact)."""
+
+    firstName: str = ""
+    lastName: str = ""
+    role: str = ""          # function inside the group (e.g. "PDG du groupe")
+    source: str = ""        # short label of the source
+    sourceUrl: str = ""     # exact URL of the source
+    sourceUrlOk: Optional[bool] = None  # True/False after link check, None if unchecked
+
+
+class ProspectParentCompany(BaseModel):
+    """A parent company / group the prospect belongs to, with the link and its people."""
+
+    name: str = ""
+    relation: str = ""      # e.g. "filiale à 100 %", "racheté en 2021 par…", "marque du groupe…"
+    website: str = ""
+    location: str = ""
+    notes: str = ""         # 1-2 sentences on the group (size, other brands…)
+    source: str = ""        # short label
+    sourceUrl: str = ""     # exact URL
+    sourceUrlOk: Optional[bool] = None
+    contacts: list[ProspectParentContact] = Field(default_factory=list)
+
+
 class ProspectCompanyIdentity(BaseModel):
     """Who the company is — guessed from the site + light web search."""
 
@@ -1013,6 +1038,7 @@ class ProspectCompanyIdentity(BaseModel):
     socialProfiles: list[str] = Field(default_factory=list)
     onlinePresenceNotes: str = ""
     valueProposition: str = ""
+    parentCompany: Optional[ProspectParentCompany] = None
 
 
 class ProspectStackByCategory(BaseModel):
@@ -1042,6 +1068,7 @@ class ProspectContact(BaseModel):
     linkedin: str = ""      # public LinkedIn URL if it appeared in search results
     source: str = ""        # short label: "site équipe", "mentions légales", "Pappers", "presse: <média>"…
     sourceUrl: str = ""     # exact URL of the source — REQUIRED when email/phone given
+    sourceUrlOk: Optional[bool] = None  # True/False after a HEAD/GET check, None if not checked
     confidence: Literal["high", "medium", "low"] = "medium"  # high = verbatim+attributed, low = weak signal
 
 

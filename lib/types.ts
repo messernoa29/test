@@ -575,6 +575,27 @@ export interface DetectedTech {
   evidence: string
 }
 
+export interface ProspectParentContact {
+  firstName: string
+  lastName: string
+  role: string
+  source: string
+  sourceUrl: string
+  sourceUrlOk: boolean | null
+}
+
+export interface ProspectParentCompany {
+  name: string
+  relation: string
+  website: string
+  location: string
+  notes: string
+  source: string
+  sourceUrl: string
+  sourceUrlOk: boolean | null
+  contacts: ProspectParentContact[]
+}
+
 export interface ProspectCompanyIdentity {
   name: string
   location: string
@@ -584,6 +605,7 @@ export interface ProspectCompanyIdentity {
   socialProfiles: string[]
   onlinePresenceNotes: string
   valueProposition: string
+  parentCompany: ProspectParentCompany | null
 }
 
 export interface ProspectStackByCategory {
@@ -604,6 +626,7 @@ export interface ProspectContact {
   linkedin: string
   source: string
   sourceUrl: string
+  sourceUrlOk: boolean | null
   confidence: TechConfidence
 }
 

@@ -29,6 +29,8 @@ import httpx
 from api.models import (
     DetectedTech,
     ProspectCompanyIdentity,
+    ProspectParentCompany,
+    ProspectParentContact,
     ProspectPersona,
     ProspectSheet,
     ProspectStackByCategory,
@@ -55,29 +57,58 @@ _MAX_TEXT_EXCERPT = 7000
 
 
 _SYSTEM = (
-    "Tu es un analyste commercial qui prépare des fiches prospect avant des "
-    "rendez-vous de prospection B2B. Tu travailles à partir de ce qui est "
-    "réellement observable sur le site web de l'entreprise ET d'une recherche "
-    "web ciblée. RÈGLE ABSOLUE : tu n'inventes rien et tu ne devines aucune "
-    "coordonnée. Si une information est inconnue, tu laisses la chaîne vide "
-    "\"\" ou null — jamais de supposition présentée comme un fait.\n"
+    "Tu es un analyste commercial senior qui prépare des fiches prospect avant "
+    "des rendez-vous de prospection B2B. Tu fais un vrai travail de recherche : "
+    "tu pars de ce qui est réellement observable sur le site web ET d'une "
+    "recherche web ciblée (annuaires légaux, presse, profils publics). RÈGLE "
+    "ABSOLUE : tu n'inventes rien et tu ne devines aucune coordonnée. Si une "
+    "information est inconnue, tu laisses la chaîne vide \"\" ou null — jamais "
+    "de supposition présentée comme un fait.\n"
+    "RÈGLE RÔLE (IMPORTANT) : le champ `role` d'une personne = sa FONCTION "
+    "professionnelle réelle (ex : « directrice de l'agence », « responsable "
+    "commercial », « DAF », « CEO »). N'utilise JAMAIS comme rôle une mention "
+    "purement légale qui ne décrit pas un poste : « directeur·rice de la "
+    "publication », « responsable de la rédaction », « éditeur du site », "
+    "« hébergeur » sont des mentions légales OBLIGATOIRES sur les sites "
+    "français — ce ne sont PAS des intitulés de poste. Si la seule chose qu'une "
+    "source dit d'une personne est « directeur de la publication », alors tu "
+    "ne connais pas son vrai rôle : laisse `role` vide (tu peux quand même "
+    "noter son nom). Ne mets un `role` que si une source décrit explicitement "
+    "sa fonction dans l'entreprise (page équipe, signature « X, [poste] », "
+    "article « X, [poste] de … », extrait LinkedIn public).\n"
     "RÈGLE COORDONNÉES : un email ou un téléphone ne peut être attribué à une "
     "PERSONNE que si une source montre explicitement « cette coordonnée "
-    "appartient à cette personne » (page équipe avec email à côté du nom, "
-    "signature, carte de visite publiée…). Dans ce cas, sourceUrl est "
-    "OBLIGATOIRE. Ne JAMAIS rattacher à une personne un numéro/email qui "
+    "appartient à cette personne » (page équipe avec email/ligne directe à "
+    "côté du nom, signature, carte de visite publiée…). Dans ce cas, sourceUrl "
+    "est OBLIGATOIRE. Ne JAMAIS rattacher à une personne un numéro/email qui "
     "figure ailleurs sur le site sans lien explicite — mets-le plutôt dans "
     "companyEmails/companyPhones. Ne JAMAIS deviner un email type "
-    "prenom.nom@domaine. En cas de doute : champ vide.\n"
+    "prenom.nom@domaine. En cas de doute : champ vide. Cherche activement les "
+    "téléphones DIRECTS des personnes nommées (pages équipe détaillées, "
+    "signatures de communiqués) mais ne les invente jamais.\n"
+    "RÈGLE SOURCEURL : ne cite JAMAIS une URL que tu n'as pas réellement vue "
+    "dans tes résultats de recherche ou en parcourant le site. Pas d'URL "
+    "« plausible » reconstruite à la main (ex : deviner /equipe/jean-dupont). "
+    "Si tu n'as pas l'URL exacte d'une source fiable, mets sourceUrl vide et "
+    "n'affirme pas la coordonnée. Préfère l'URL de la page d'index "
+    "(ex : la page « équipe ») si tu n'as pas l'URL profonde exacte.\n"
+    "RÈGLE GROUPE / MAISON-MÈRE : cherche si l'entreprise appartient à un "
+    "groupe / a une société mère / a été rachetée (Pappers et Societe.com "
+    "indiquent les actionnaires personnes morales et le groupe ; les mentions "
+    "légales et les communiqués aussi). Si oui : donne le nom du groupe, la "
+    "nature du lien (filiale, marque, rachat + année…), et les dirigeants ou "
+    "contacts connus de ce groupe (PDG, directeur général, etc.) avec leur "
+    "source. Mêmes règles strictes : rien d'inventé, sourceUrl réel.\n"
     "SOURCES À UTILISER (recherche web) : annuaires légaux (Pappers, "
     "Societe.com, Infogreffe — fiables pour raison sociale, dirigeants "
-    "officiels, date de création, adresse du siège) ; le site de l'entreprise "
-    "(pages équipe / contact / mentions légales — priorité pour rattacher une "
-    "coordonnée à une personne) ; articles de presse / interviews / "
-    "communiqués (pour confirmer des rôles explicites « X, directeur "
-    "marketing de … ») ; résultats LinkedIn PUBLICS tels qu'ils apparaissent "
-    "dans la recherche (pour confirmer nom+rôle UNIQUEMENT — jamais de "
-    "numéro/email privé, et tu n'ouvres pas les pages linkedin.com).\n"
+    "officiels, actionnaires / groupe, date de création, adresse du siège) ; "
+    "le site de l'entreprise (pages équipe / contact / mentions légales — "
+    "priorité pour rattacher une coordonnée à une personne) ; articles de "
+    "presse / interviews / communiqués (pour confirmer des rôles explicites "
+    "« X, directeur marketing de … » et les opérations de rachat) ; résultats "
+    "LinkedIn PUBLICS tels qu'ils apparaissent dans la recherche (pour "
+    "confirmer nom+rôle UNIQUEMENT — jamais de numéro/email privé, et tu "
+    "n'ouvres pas les pages linkedin.com).\n"
     "SORTIE : uniquement le bloc <PROSPECT_JSON>{...}</PROSPECT_JSON>, sans "
     "aucun texte autour, toujours fermé par </PROSPECT_JSON>. Français concis."
 )
@@ -103,9 +134,10 @@ Coordonnées brutes extraites automatiquement du site (à attribuer aux personne
 {contacts_raw}
 
 Utilise web_search de façon CIBLÉE :
-- "{domain} Pappers" / "{domain} Societe.com" / "<raison sociale> Infogreffe" → dirigeants officiels, date de création, adresse du siège, raison sociale
-- "<raison sociale> directeur marketing" / "... responsable digital" / "... CEO" → confirmer des rôles explicites dans des articles/communiqués/pages d'équipe
-- recherche du nom de l'entreprise sur les pages équipe / "qui sommes-nous" si non déjà crawlées
+- "{domain} Pappers" / "{domain} Societe.com" / "<raison sociale> Infogreffe" → dirigeants officiels, ACTIONNAIRES / société mère, date de création, adresse du siège, raison sociale
+- "<raison sociale> directeur" / "... responsable commercial" / "... CEO" / "... fondateur" → confirmer des rôles explicites (poste réel, pas une mention légale) dans des articles/communiqués/pages d'équipe
+- "<raison sociale> rachat" / "... groupe" / "... filiale de" → détecter une maison-mère / une opération de rachat, puis "<nom du groupe> PDG / dirigeants" pour ses contacts
+- recherche du nom de l'entreprise sur les pages équipe / "qui sommes-nous" si non déjà crawlées (y chercher les lignes directes / emails nominatifs)
 - les extraits LinkedIn publics renvoyés par la recherche peuvent confirmer un nom+rôle (jamais ouvrir linkedin.com, jamais de numéro/email privé)
 
 Produis :
@@ -118,15 +150,23 @@ Produis :
   - socialProfiles : URLs des profils réseaux sociaux trouvés sur le site (LinkedIn, Instagram, Facebook, X, YouTube…), liste vide sinon
   - onlinePresenceNotes : 1-2 phrases sur la présence en ligne (avis Google si mentionnés, blog actif, etc.)
   - valueProposition : 1-2 phrases sur le positionnement / la proposition de valeur affichée
+  - parentCompany : société mère / groupe auquel l'entreprise appartient, OU null si elle est indépendante / aucune info fiable. Si renseigné :
+      - name : nom du groupe / de la société mère
+      - relation : nature du lien en quelques mots (« filiale à 100 % », « racheté en 2022 par … », « marque du groupe … », « participation majoritaire de … »)
+      - website : site du groupe si connu (vide sinon)
+      - location : ville/pays du groupe (vide sinon)
+      - notes : 1-2 phrases sur le groupe (taille, autres marques/filiales, secteur)
+      - source / sourceUrl : libellé court + URL EXACTE de la source (Pappers, Societe.com, communiqué, page « le groupe »…)
+      - contacts : dirigeants ou contacts connus du GROUPE (PDG, directeur général, directeur du développement…), chacun : firstName, lastName, role (fonction dans le groupe), source, sourceUrl (URL exacte ou vide). Liste vide si aucun connu de façon fiable.
 - persona :
   - likelyContactRoles : 1-3 rôles probables à contacter (ex : "Dirigeant·e", "Responsable marketing", "Responsable e-commerce", "DSI") selon la taille et le secteur
   - likelyPriorities : 2-4 priorités / douleurs probables de ce décideur
   - approachAngles : 2-4 accroches de prospection PERSONNALISÉES, ancrées sur ce qui a réellement été observé sur le site
   - contacts : liste des PERSONNES nommées trouvées (idéalement les décideurs : dirigeants officiels via Pappers/Societe.com, responsables marketing/digital via le site ou la presse). Pour chacune :
       - firstName, lastName
-      - role : fonction si elle est explicitement indiquée dans une source (vide sinon)
+      - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. Mieux vaut `role` vide qu'un rôle faux.
       - email : UNIQUEMENT si une source montre clairement que cet email est CELUI DE CETTE PERSONNE (ex : page équipe avec l'email à côté du nom). Vide sinon. Ne devine JAMAIS prenom.nom@domaine.
-      - phone : même règle stricte que l'email — uniquement si rattaché explicitement à la personne dans la source. Sinon vide (le mettre dans companyPhones si c'est un numéro général).
+      - phone : cherche activement la ligne DIRECTE de la personne (page équipe détaillée, signature de communiqué). Ne la renseigne QUE si la source la rattache explicitement à cette personne. Sinon vide (un numéro général va dans companyPhones, jamais collé à une personne).
       - linkedin : URL LinkedIn publique seulement si elle apparaît dans tes résultats de recherche
       - source : libellé court de la source (ex : "site équipe", "mentions légales", "Pappers", "Societe.com", "presse: Les Échos", "résultat LinkedIn")
       - sourceUrl : l'URL EXACTE de la source — OBLIGATOIRE dès que tu donnes un email, un phone, ou un rôle non trivial. Si tu ne peux pas donner d'URL de source, alors tu ne donnes pas la coordonnée.
@@ -150,7 +190,8 @@ Sortie STRICTE :
     "estimatedSize": "...",
     "socialProfiles": ["..."],
     "onlinePresenceNotes": "...",
-    "valueProposition": "..."
+    "valueProposition": "...",
+    "parentCompany": null
   }},
   "persona": {{
     "likelyContactRoles": ["..."],
@@ -194,6 +235,7 @@ def run_pipeline(sheet: ProspectSheet) -> ProspectSheet:
         stack = detect_tech_stack(home_html, home_headers)
 
         identity, persona = _enrich_with_llm(sheet.url, sheet.domain, pages, stack)
+        identity, persona = _verify_source_urls(identity, persona)
         return sheet.model_copy(
             update={
                 "status": "done",
@@ -460,7 +502,7 @@ def _enrich_with_llm(
         response = get_llm_client().generate(
             system=_SYSTEM,
             user_prompt=prompt,
-            max_tokens=4000,
+            max_tokens=5500,
             enable_web_search=True,
             temperature=0.0,
         )
@@ -499,7 +541,38 @@ def _parse_identity(raw: object, fallback_name: str) -> ProspectCompanyIdentity:
         return ProspectCompanyIdentity(name=fallback_name)
     if not (identity.name or "").strip():
         identity = identity.model_copy(update={"name": fallback_name})
+    # Drop an empty parentCompany shell (no name → nothing to show).
+    pc = identity.parentCompany
+    if pc is not None and not (pc.name or "").strip():
+        identity = identity.model_copy(update={"parentCompany": None})
+    elif pc is not None:
+        scrubbed_contacts = [
+            c.model_copy(update={"role": _scrub_legal_role(c.role)})
+            for c in pc.contacts
+        ]
+        identity = identity.model_copy(
+            update={"parentCompany": pc.model_copy(update={"contacts": scrubbed_contacts})}
+        )
     return identity
+
+
+# Legal-mention phrases that French sites are required to display but which
+# are NOT job titles — never keep them as a contact's `role`.
+_LEGAL_MENTION_ROLE_RE = re.compile(
+    r"(directeur|directrice|dir\.?)\s+(de\s+(la\s+)?)?publication"
+    r"|responsable\s+de\s+(la\s+)?(publication|r[ée]daction)"
+    r"|[ée]diteur(\s+du\s+site)?\b"
+    r"|h[ée]bergeur\b"
+    r"|webmaster\b",
+    re.IGNORECASE,
+)
+
+
+def _scrub_legal_role(role: str) -> str:
+    r = (role or "").strip()
+    if not r:
+        return ""
+    return "" if _LEGAL_MENTION_ROLE_RE.search(r) else r
 
 
 def _parse_persona(raw: object) -> ProspectPersona:
@@ -512,20 +585,26 @@ def _parse_persona(raw: object) -> ProspectPersona:
         return ProspectPersona()
     # Safety net: if a contact carries an email/phone but no source URL, the
     # attribution is unverified — strip the coordinate (move generic ones to
-    # the company-level lists) and downgrade confidence.
+    # the company-level lists) and downgrade confidence. Also scrub legal-
+    # mention "roles" (directeur de la publication, etc.).
     moved_emails: list[str] = list(persona.companyEmails)
     moved_phones: list[str] = list(persona.companyPhones)
     cleaned: list = []
     for c in persona.contacts:
+        updates: dict = {}
+        scrubbed = _scrub_legal_role(c.role)
+        if scrubbed != (c.role or ""):
+            updates["role"] = scrubbed
         if (c.email or c.phone) and not (c.sourceUrl or "").strip():
             if c.email and c.email not in moved_emails:
                 moved_emails.append(c.email)
             if c.phone and c.phone not in moved_phones:
                 moved_phones.append(c.phone)
-            c = c.model_copy(update={
-                "email": "", "phone": "",
-                "confidence": "low" if c.confidence == "high" else c.confidence,
-            })
+            updates["email"] = ""
+            updates["phone"] = ""
+            updates["confidence"] = "low" if c.confidence == "high" else c.confidence
+        if updates:
+            c = c.model_copy(update=updates)
         cleaned.append(c)
     return persona.model_copy(update={
         "contacts": cleaned,
@@ -562,6 +641,75 @@ def _extract_json(response: LLMResponse, *, tag: str) -> Optional[dict]:
         logger.warning("%s JSON invalid: %s", tag, e)
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _check_url_alive(client: httpx.Client, url: str) -> Optional[bool]:
+    """True if the URL responds < 400, False if it 404s / errors, None if we
+    can't tell (malformed URL, etc.). We never *remove* anything based on this —
+    it only powers a ⚠️ hint in the UI."""
+    u = (url or "").strip()
+    if not u or not u.lower().startswith(("http://", "https://")):
+        return None
+    try:
+        resp = client.head(u)
+        # Some servers don't allow HEAD — fall back to a ranged GET.
+        if resp.status_code in (403, 405, 501):
+            resp = client.get(u, headers={"Range": "bytes=0-2048"})
+    except httpx.HTTPError:
+        try:
+            resp = client.get(u, headers={"Range": "bytes=0-2048"})
+        except httpx.HTTPError as e:
+            logger.debug("source URL check failed for %s: %s", u, e)
+            return False
+    return resp.status_code < 400
+
+
+def _verify_source_urls(
+    identity: ProspectCompanyIdentity, persona: ProspectPersona
+) -> tuple[ProspectCompanyIdentity, ProspectPersona]:
+    """HEAD/GET every sourceUrl the LLM cited; tag each with sourceUrlOk.
+    Nothing is removed — a dead link just gets a ⚠️ in the UI."""
+    headers = {"User-Agent": _USER_AGENT, "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7"}
+    try:
+        client = httpx.Client(
+            headers=headers, timeout=8.0, follow_redirects=True, verify=False
+        )
+    except Exception as e:
+        logger.debug("source URL verifier: client init failed: %s", e)
+        return identity, persona
+    cache: dict[str, Optional[bool]] = {}
+
+    def check(url: str) -> Optional[bool]:
+        key = (url or "").strip()
+        if key in cache:
+            return cache[key]
+        cache[key] = _check_url_alive(client, key)
+        return cache[key]
+
+    try:
+        # contacts
+        new_contacts = [
+            c.model_copy(update={"sourceUrlOk": check(c.sourceUrl)})
+            if (c.sourceUrl or "").strip() else c
+            for c in persona.contacts
+        ]
+        persona = persona.model_copy(update={"contacts": new_contacts})
+        # parent company + its contacts
+        pc = identity.parentCompany
+        if pc is not None:
+            pc_contacts = [
+                c.model_copy(update={"sourceUrlOk": check(c.sourceUrl)})
+                if (c.sourceUrl or "").strip() else c
+                for c in pc.contacts
+            ]
+            pc = pc.model_copy(update={
+                "contacts": pc_contacts,
+                "sourceUrlOk": check(pc.sourceUrl) if (pc.sourceUrl or "").strip() else pc.sourceUrlOk,
+            })
+            identity = identity.model_copy(update={"parentCompany": pc})
+    finally:
+        client.close()
+    return identity, persona
 
 
 def _scan_balanced(text: str, start: int) -> Optional[str]:

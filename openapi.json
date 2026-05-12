@@ -1291,6 +1291,51 @@
         }
       }
     },
+    "/prospect/{prospect_id}/pdf": {
+      "get": {
+        "tags": [
+          "prospect"
+        ],
+        "summary": "Download Prospect Pdf",
+        "operationId": "download_prospect_pdf_prospect__prospect_id__pdf_get",
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "prospect_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Prospect Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/settings/branding": {
       "get": {
         "tags": [
@@ -5857,6 +5902,16 @@
             "type": "string",
             "title": "Valueproposition",
             "default": ""
+          },
+          "parentCompany": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProspectParentCompany"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -5905,6 +5960,17 @@
             "title": "Sourceurl",
             "default": ""
           },
+          "sourceUrlOk": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourceurlok"
+          },
           "confidence": {
             "type": "string",
             "enum": [
@@ -5919,6 +5985,109 @@
         "type": "object",
         "title": "ProspectContact",
         "description": "A named person at the prospect (from the site or public sources).\n\nStrict rule enforced via the prompt: an email/phone is only filled when the\nsource explicitly attributes it to *this* person; `sourceUrl` is mandatory\nwhenever any coordinate (email/phone) or a non-obvious role is given."
+      },
+      "ProspectParentCompany": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "relation": {
+            "type": "string",
+            "title": "Relation",
+            "default": ""
+          },
+          "website": {
+            "type": "string",
+            "title": "Website",
+            "default": ""
+          },
+          "location": {
+            "type": "string",
+            "title": "Location",
+            "default": ""
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes",
+            "default": ""
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": ""
+          },
+          "sourceUrl": {
+            "type": "string",
+            "title": "Sourceurl",
+            "default": ""
+          },
+          "sourceUrlOk": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourceurlok"
+          },
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/ProspectParentContact"
+            },
+            "type": "array",
+            "title": "Contacts"
+          }
+        },
+        "type": "object",
+        "title": "ProspectParentCompany",
+        "description": "A parent company / group the prospect belongs to, with the link and its people."
+      },
+      "ProspectParentContact": {
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "title": "Firstname",
+            "default": ""
+          },
+          "lastName": {
+            "type": "string",
+            "title": "Lastname",
+            "default": ""
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": ""
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": ""
+          },
+          "sourceUrl": {
+            "type": "string",
+            "title": "Sourceurl",
+            "default": ""
+          },
+          "sourceUrlOk": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourceurlok"
+          }
+        },
+        "type": "object",
+        "title": "ProspectParentContact",
+        "description": "A named person at the parent company / group (a leader or a contact)."
       },
       "ProspectPersona": {
         "properties": {

@@ -403,6 +403,10 @@ export async function deleteProspect(id: string): Promise<void> {
   })
 }
 
+export function prospectPdfUrl(id: string): string {
+  return `${BASE_URL}/prospect/${encodeURIComponent(id)}/pdf`
+}
+
 // --- llms.txt generator -----------------------------------------------------
 
 export interface LlmsTxtResult {
