@@ -48,11 +48,12 @@ _REQUEST_TIMEOUT = 15.0
 _KEY_PATHS = [
     "/contact", "/contact/", "/nous-contacter", "/contactez-nous",
     "/equipe", "/equipe/", "/notre-equipe", "/team", "/our-team", "/about/team",
+    "/l-equipe", "/lequipe", "/team-members", "/people", "/about/people",
     "/a-propos", "/a-propos/", "/about", "/about/", "/about-us",
-    "/qui-sommes-nous", "/notre-histoire",
+    "/agence", "/notre-agence", "/l-agence", "/lagence", "/qui-sommes-nous", "/notre-histoire",
     "/mentions-legales", "/mentions-legales/", "/legal", "/legal-notice", "/imprint",
 ]
-_MAX_EXTRA_PAGES = 7
+_MAX_EXTRA_PAGES = 9
 _MAX_TEXT_EXCERPT = 12000
 
 
@@ -64,18 +65,17 @@ _SYSTEM = (
     "ABSOLUE : tu n'inventes rien et tu ne devines aucune coordonnée. Si une "
     "information est inconnue, tu laisses la chaîne vide \"\" ou null — jamais "
     "de supposition présentée comme un fait.\n"
-    "RÈGLE RÔLE (IMPORTANT) : le champ `role` d'une personne = sa FONCTION "
-    "professionnelle réelle (ex : « directrice de l'agence », « responsable "
-    "commercial », « DAF », « CEO »). N'utilise JAMAIS comme rôle une mention "
-    "purement légale qui ne décrit pas un poste : « directeur·rice de la "
-    "publication », « responsable de la rédaction », « éditeur du site », "
-    "« hébergeur » sont des mentions légales OBLIGATOIRES sur les sites "
-    "français — ce ne sont PAS des intitulés de poste. Si la seule chose qu'une "
-    "source dit d'une personne est « directeur de la publication », alors tu "
-    "ne connais pas son vrai rôle : laisse `role` vide (tu peux quand même "
-    "noter son nom). Ne mets un `role` que si une source décrit explicitement "
-    "sa fonction dans l'entreprise (page équipe, signature « X, [poste] », "
-    "article « X, [poste] de … », extrait LinkedIn public).\n"
+    "RÈGLE RÔLE : le champ `role` = la FONCTION de la personne (ex : « directrice "
+    "de l'agence », « responsable commercial », « CEO »). « Directeur·rice de la "
+    "publication », « éditeur du site », « responsable de la rédaction », "
+    "« hébergeur » sont des MENTIONS LÉGALES, pas des intitulés de poste. Mais "
+    "en pratique, sur un petit site, le « directeur de la publication » et/ou le "
+    "représentant légal au RCS est presque toujours le ou la dirigeant·e : si "
+    "c'est la seule info que tu as sur cette personne, mets role = « Dirigeant·e "
+    "(d'après mentions légales / RCS) » plutôt que de laisser vide ou d'inventer "
+    "un titre précis. Si une autre source (page équipe, signature « X, [poste] », "
+    "article, LinkedIn public) donne un poste explicite, utilise-le directement. "
+    "N'écris jamais littéralement « directeur de la publication » comme `role`.\n"
     "RÈGLE COORDONNÉES : un email ou un téléphone ne peut être attribué à une "
     "PERSONNE que si une source montre explicitement « cette coordonnée "
     "appartient à cette personne » (page équipe avec email/ligne directe à "
@@ -86,40 +86,29 @@ _SYSTEM = (
     "prenom.nom@domaine. En cas de doute : champ vide. Cherche activement les "
     "téléphones DIRECTS des personnes nommées (pages équipe détaillées, "
     "signatures de communiqués) mais ne les invente jamais.\n"
-    "RÈGLE HOMONYMES / AUTRES SOCIÉTÉS : avant d'attribuer un rôle ou une "
-    "coordonnée à une personne nommée, vérifie qu'il s'agit bien de LA personne "
-    "qui travaille pour CETTE entreprise (Pappers/Societe.com listent les "
-    "mandats d'une personne : « gérant de X », « président de Y » — utile pour "
-    "repérer les homonymes et les mandats croisés). Si la personne est aussi "
-    "rattachée publiquement à d'autres entreprises (autre poste, autre mandat, "
-    "fondateur d'une autre boîte), liste-le dans otherAffiliations. Si une "
-    "coordonnée trouvée pourrait en réalité être celle d'une AUTRE de ses "
-    "sociétés (ex : un numéro vu sur le site d'une autre entreprise qu'elle "
-    "dirige), ne la rattache PAS ici — laisse vide et baisse la confiance.\n"
-    "RÈGLE PRIORITÉ DES SOURCES POUR LES PERSONNES : le SITE de l'entreprise "
-    "prime. Les personnes vues sur le site (page « équipe » / « notre équipe » / "
-    "« about », signatures, mentions légales du site) sont prioritaires et "
-    "doivent TOUJOURS figurer dans la liste contacts. Le registre légal "
-    "(Pappers, Societe.com) ne sert qu'à COMPLÉTER ou CONFIRMER — jamais à "
-    "remplacer ce qui est sur le site. Si le site nomme « Simon Mathieu, "
-    "directeur » et que le RCS nomme une autre personne comme représentant "
-    "légal, c'est Simon Mathieu qui est l'interlocuteur ; l'autre va, au mieux, "
-    "tout en bas avec un avertissement (voir règle suivante).\n"
-    "RÈGLE DIRIGEANT LÉGAL ≠ INTERLOCUTEUR (TRÈS IMPORTANT) : un « représentant "
-    "légal » / « président » / « gérant » lu sur Pappers ou Societe.com est la "
-    "personne enregistrée au RCS pour une SOCIÉTÉ IMMATRICULÉE — ce n'est PAS "
-    "forcément la personne en poste, ni la bonne société. NE L'INCLUS PAS DU "
-    "TOUT si cette personne n'apparaît NULLE PART ailleurs que dans le registre "
-    "légal (absente du site, de la page équipe, de la presse, des extraits "
-    "LinkedIn). Une personne trouvée uniquement sur Pappers/Societe.com et "
-    "introuvable sur le site n'a PAS sa place dans le brief — c'est très "
-    "probablement un homonyme, un ancien dirigeant, un président de holding "
-    "sans rôle opérationnel, ou la mauvaise société. Ne l'inclus QUE si (a) la "
-    "fiche légale concorde clairement avec le site (adresse du siège, nom "
-    "commercial, secteur) ET (b) une autre source que le registre confirme "
-    "qu'elle est en activité dans l'entreprise — auquel cas role = « <Titre> » "
-    "(ou « <Titre> (mention RCS) » si la confirmation est faible), confidence "
-    "ajustée, et note explicite si besoin.\n"
+    "RÈGLE PERSONNES — D'ABORD LE SITE, ET SOIS GÉNÉREUX : ta priorité absolue "
+    "est de lister TOUTES les personnes nommées sur le site lui-même — page "
+    "« équipe / notre équipe / about », signatures, mentions légales du site, "
+    "blog (auteurs), pages projets. Chaque membre cité = un contact dans la "
+    "liste, AVEC son nom et son rôle tel qu'affiché. Ces personnes-là, tu les "
+    "inclus toujours (confidence \"high\" ou \"medium\") — pas besoin de "
+    "vérification supplémentaire pour quelqu'un qui figure sur le site officiel "
+    "de l'entreprise. Ne renvoie JAMAIS une liste vide si le site nomme des "
+    "gens : ce serait une erreur. Vise l'exhaustivité (5, 10, 15 personnes si "
+    "le site les nomme), décideurs en tête puis opérationnels.\n"
+    "RÈGLE PERSONNES — LE RCS NE FAIT QUE COMPLÉTER : Pappers/Societe.com et la "
+    "presse servent à AJOUTER des décideurs que le site ne nomme pas, et à "
+    "confirmer des rôles. Mais une personne trouvée UNIQUEMENT au registre "
+    "légal et totalement absente du site / de la presse / des extraits LinkedIn "
+    "(donc juste « représentant légal » sur Pappers, rien d'autre) : ne "
+    "l'inclus PAS — c'est souvent un homonyme, un ancien dirigeant, un "
+    "président de holding, ou la mauvaise société. En cas de doute sur "
+    "l'identité d'une personne (homonymes possibles), garde quand même la "
+    "personne du SITE et écarte celle qui ne vient que du registre.\n"
+    "RÈGLE HOMONYMES / MANDATS : pour une personne nommée, si tu sais qu'elle "
+    "est aussi rattachée publiquement à d'autres entreprises, liste-le dans "
+    "otherAffiliations. Une coordonnée vue sur le site d'une AUTRE de ses "
+    "sociétés ne se rattache pas ici.\n"
     "RÈGLE SOURCEURL : ne cite JAMAIS une URL que tu n'as pas réellement vue "
     "dans tes résultats de recherche ou en parcourant le site. Pas d'URL "
     "« plausible » reconstruite à la main (ex : deviner /equipe/jean-dupont). "
@@ -167,13 +156,14 @@ Stack technique DÉJÀ détecté automatiquement (ne le recopie pas, sers-t'en p
 Coordonnées brutes extraites automatiquement du site (à attribuer aux personnes / à l'entreprise) :
 {contacts_raw}
 
-Utilise web_search de façon CIBLÉE :
+Utilise web_search de façon INTENSIVE — fais plusieurs requêtes, surtout pour les personnes :
+- "<raison sociale> équipe" / "<raison sociale> notre équipe" / "<raison sociale> qui sommes-nous" / "<nom commercial> team" → trouver les membres de l'équipe que le site ne montre pas directement
+- "<raison sociale> linkedin" / "<nom commercial> linkedin employés" → repérer noms + rôles via les extraits LinkedIn publics (jamais ouvrir linkedin.com, jamais de numéro/email privé)
+- "<raison sociale> directeur" / "... fondateur" / "... CEO" / "... responsable commercial" / "... gérant" → confirmer des postes réels dans des articles, communiqués, interviews
 - "{domain} Pappers" / "{domain} Societe.com" / "<raison sociale> Infogreffe" → dirigeants officiels, ACTIONNAIRES / société mère, date de création, adresse du siège, raison sociale
-- "<raison sociale> directeur" / "... responsable commercial" / "... CEO" / "... fondateur" → confirmer des rôles explicites (poste réel, pas une mention légale) dans des articles/communiqués/pages d'équipe
-- "<prénom nom> Pappers" / "<prénom nom> mandats" / "<prénom nom> dirigeant" → vérifier qu'on parle bien de LA bonne personne (pas un homonyme), et repérer ses autres mandats / autres sociétés (→ otherAffiliations)
-- "<raison sociale> rachat" / "... groupe" / "... filiale de" → détecter une maison-mère / une opération de rachat, puis "<nom du groupe> PDG / dirigeants" pour ses contacts
-- recherche du nom de l'entreprise sur les pages équipe / "qui sommes-nous" si non déjà crawlées (y chercher les lignes directes / emails nominatifs)
-- les extraits LinkedIn publics renvoyés par la recherche peuvent confirmer un nom+rôle (jamais ouvrir linkedin.com, jamais de numéro/email privé)
+- "<prénom nom> Pappers" / "<prénom nom> dirigeant" pour CHAQUE personne trouvée → vérifier que c'est la bonne personne (pas un homonyme), repérer ses autres mandats (→ otherAffiliations)
+- "<raison sociale> rachat" / "... groupe" / "... filiale de" → détecter une maison-mère / un rachat, puis "<nom du groupe> PDG / dirigeants" pour ses contacts
+- si le site n'a quasiment aucun nom (ex : site vitrine Webflow/Wix), c'est encore plus important : la recherche web est ta source principale pour les personnes — ne te contente pas du seul nom des mentions légales
 
 Produis :
 - identity :
@@ -197,7 +187,7 @@ Produis :
   - likelyContactRoles : 1-3 rôles probables à contacter (ex : "Dirigeant·e", "Responsable marketing", "Responsable e-commerce", "DSI") selon la taille et le secteur
   - likelyPriorities : 2-4 priorités / douleurs probables de ce décideur
   - approachAngles : 2-4 accroches de prospection PERSONNALISÉES, ancrées sur ce qui a réellement été observé sur le site
-  - contacts : liste de TOUTES les PERSONNES nommées que tu identifies de façon fiable — vise l'EXHAUSTIVITÉ, pas seulement 1 ou 2. Ratisse : page « équipe » / « notre équipe » / « about » (chaque membre listé), mentions légales (gérant, dirigeants), Pappers/Societe.com (tous les représentants/dirigeants déclarés), signatures de communiqués, articles de presse, extraits LinkedIn publics. Liste-les toutes (10, 15, 20 si le site le permet), des décideurs jusqu'aux contacts opérationnels (chef de projet, responsable d'agence, etc.). Trie par pertinence pour la prospection : décideurs / dirigeants d'abord, puis le reste. Pour chacune :
+  - contacts : liste de TOUTES les PERSONNES nommées — commence IMPÉRATIVEMENT par tous les gens nommés sur le SITE (page équipe / notre équipe / about, signatures, mentions légales du site, auteurs du blog, pages projets). Chaque membre cité sur le site = un contact ici (confidence "high"/"medium"), sans vérification supplémentaire. Ne renvoie PAS une liste vide si le site nomme des gens. Ajoute ensuite, en complément, les décideurs trouvés via Pappers/Societe.com/presse/LinkedIn que le site ne nomme pas. N'ajoute PAS une personne qui n'existe QUE dans le registre légal et nulle part ailleurs. Vise l'exhaustivité (5, 10, 15+ si le site les nomme), décideurs en tête puis opérationnels. Pour chacune :
       - firstName, lastName
       - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. RAPPEL : une personne trouvée UNIQUEMENT au registre légal (Pappers/Societe.com) et absente du site n'apparaît PAS dans la liste — ne l'invente pas un rôle pour la garder. Si elle est gardée parce que la fiche légale concorde ET qu'une autre source la confirme, mais que cette confirmation reste faible : « <Titre> (mention RCS) » + confidence "low".
       - note : avertissement éventuel sur ce contact (ex : « confirmé via le site mais aussi représentant légal au RCS », « rôle non confirmé hors registre »). Vide si rien à signaler.
@@ -208,7 +198,7 @@ Produis :
       - source : libellé court de la source (ex : "site équipe", "mentions légales", "Pappers", "Societe.com", "presse: Les Échos", "résultat LinkedIn")
       - sourceUrl : l'URL EXACTE de la source — OBLIGATOIRE dès que tu donnes un email, un phone, ou un rôle non trivial. Si tu ne peux pas donner d'URL de source, alors tu ne donnes pas la coordonnée.
       - confidence : "high" = nom+rôle (et éventuelle coordonnée) vus verbatim et explicitement attribués dans une source citée ; "medium" = nom+rôle confirmés par recoupement de sources mais pas un seul document explicite ; "low" = signal faible (ne mets pas de coordonnée dans ce cas)
-    Liste vide si aucune personne identifiable de façon fiable.
+    Liste vide UNIQUEMENT si le site ne nomme personne ET qu'aucune source ne donne de nom — ce qui est rare.
   - companyEmails : emails GÉNÉRIQUES de l'entreprise (contact@, info@, accueil@…) — pas ceux d'une personne
   - companyPhones : numéros de téléphone généraux de l'entreprise (standard, accueil)
   - companyAddress : adresse postale complète du siège si trouvée (Pappers/Societe.com/mentions légales), vide sinon
@@ -314,20 +304,79 @@ def _fetch_pages(url: str) -> list[tuple[str, str, dict]]:
             return out
         out.append(home)
         origin = "{0.scheme}://{0.netloc}".format(urlparse(home[0]))
-        seen_paths = {urlparse(home[0]).path or "/"}
+        seen_urls = {_norm_url(home[0])}
+
+        def try_fetch(target: str) -> None:
+            if len(out) > _MAX_EXTRA_PAGES:
+                return
+            page = _get(client, target)
+            if page is None:
+                return
+            key = _norm_url(page[0])
+            if key in seen_urls:
+                return
+            seen_urls.add(key)
+            out.append(page)
+
+        # 1) Links discovered in the home HTML that look like team/about/contact
+        #    pages — this beats blind path-probing on real sites.
+        for href in _discover_people_links(home[1], home[0])[:8]:
+            if len(out) > _MAX_EXTRA_PAGES:
+                break
+            try_fetch(href)
+        # 2) Fallback: blind-probe well-known paths for the ones we still miss.
         for path in _KEY_PATHS:
             if len(out) > _MAX_EXTRA_PAGES:
                 break
-            if path in seen_paths:
-                continue
-            page = _get(client, urljoin(origin + "/", path.lstrip("/")))
-            if page is None:
-                continue
-            seen_paths.add(path)
-            out.append(page)
+            try_fetch(urljoin(origin + "/", path.lstrip("/")))
     finally:
         client.close()
     return out
+
+
+def _norm_url(u: str) -> str:
+    """Normalise a URL for dedup: drop scheme case, fragment, trailing slash."""
+    p = urlparse(u.strip())
+    path = (p.path or "/").rstrip("/") or "/"
+    return f"{p.netloc.lower()}{path}?{p.query}" if p.query else f"{p.netloc.lower()}{path}"
+
+
+_PEOPLE_HREF_RE = re.compile(
+    r"(equipe|equipes|team|teams|notre-equipe|our-team|about|a-propos|apropos|"
+    r"qui-sommes-nous|agence|notre-agence|l-agence|people|staff|trombinoscope|"
+    r"contact|nous-contacter|contactez|mentions-legales|legal|imprint|fondateur|"
+    r"founders?|leadership|management|direction)",
+    re.IGNORECASE,
+)
+_HREF_RE = re.compile(r'href=["\']([^"\'#?]+)', re.IGNORECASE)
+
+
+def _discover_people_links(home_html: str, home_url: str) -> list[str]:
+    """Absolute, same-host URLs found in the home page whose path/anchor looks
+    like a team / about / contact / legal page. Deduped, order-preserving."""
+    base = urlparse(home_url)
+    host = base.netloc.lower()
+    found: list[str] = []
+    seen: set[str] = set()
+    for m in _HREF_RE.finditer(home_html or ""):
+        raw = m.group(1).strip()
+        if not raw or raw.startswith(("mailto:", "tel:", "javascript:", "data:")):
+            continue
+        absu = urljoin(home_url, raw)
+        p = urlparse(absu)
+        if p.scheme not in ("http", "https") or p.netloc.lower() != host:
+            continue
+        path = p.path or "/"
+        if path in ("", "/"):
+            continue
+        if not _PEOPLE_HREF_RE.search(path):
+            continue
+        key = _norm_url(absu)
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(absu)
+    return found
 
 
 def _get(client: httpx.Client, url: str) -> Optional[tuple[str, str, dict]]:
@@ -540,7 +589,7 @@ def _enrich_with_llm(
         response = get_llm_client().generate(
             system=_SYSTEM,
             user_prompt=prompt,
-            max_tokens=9000,
+            max_tokens=16000,
             enable_web_search=True,
             temperature=0.0,
         )
@@ -566,6 +615,17 @@ def _enrich_with_llm(
 
     identity = _parse_identity(payload.get("identity"), fallback_name or domain)
     persona = _parse_persona(payload.get("persona"))
+    logger.info(
+        "Prospect enrich for %s: stop=%s, %d contact(s), parent=%s",
+        domain, response.stop_reason, len(persona.contacts),
+        bool(identity.parentCompany),
+    )
+    if not persona.contacts:
+        logger.warning(
+            "Prospect enrich for %s returned 0 contacts (stop=%s). Raw persona keys=%s",
+            domain, response.stop_reason,
+            list(payload.get("persona").keys()) if isinstance(payload.get("persona"), dict) else None,
+        )
     return identity, persona
 
 
