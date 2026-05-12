@@ -195,9 +195,9 @@ Produis :
   - likelyPriorities : 2-4 priorités / douleurs probables de ce décideur
   - approachAngles : 2-4 accroches de prospection PERSONNALISÉES, ancrées sur ce qui a réellement été observé sur le site
   - contacts : liste de TOUTES les PERSONNES nommées — commence IMPÉRATIVEMENT par tous les gens nommés sur le SITE (page équipe / notre équipe / about, signatures, mentions légales du site, auteurs du blog, pages projets). Chaque membre cité sur le site = un contact ici (confidence "high"/"medium"), sans vérification supplémentaire. Ne renvoie PAS une liste vide si le site nomme des gens. Ajoute ensuite, en complément, les décideurs trouvés via Pappers/Societe.com/presse/LinkedIn que le site ne nomme pas. N'ajoute PAS une personne qui n'existe QUE dans le registre légal et nulle part ailleurs. Vise l'exhaustivité (5, 10, 15+ si le site les nomme), décideurs en tête puis opérationnels. Pour chacune :
-      - firstName, lastName
-      - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. RAPPEL : une personne trouvée UNIQUEMENT au registre légal (Pappers/Societe.com) et absente du site n'apparaît PAS dans la liste — ne l'invente pas un rôle pour la garder. Si elle est gardée parce que la fiche légale concorde ET qu'une autre source la confirme, mais que cette confirmation reste faible : « <Titre> (mention RCS) » + confidence "low".
-      - note : avertissement éventuel sur ce contact. Exemples : « nom de famille déduit de la recherche web — à confirmer ; autre hypothèse : Simon Frayssines », « rôle d'après mentions légales / RCS — à confirmer », « confirmé via le site mais aussi représentant légal au RCS ». Vide si rien à signaler. METS TOUJOURS une note quand le nom de famille ou le rôle vient d'une déduction et pas d'une source qui nomme la personne explicitement avec l'entreprise.
+      - firstName, lastName : NE DEVINE JAMAIS un nom de famille. Tu ne renseignes lastName QUE si une source nomme explicitement « Prénom NOM » en lien avec CETTE entreprise (page du site, mentions légales, communiqué qui cite « Simon Mathieu, … d'Agence Script », fiche Pappers de l'entreprise, extrait LinkedIn où le nom complet ET l'entreprise apparaissent ensemble). Si le site ne montre qu'un PRÉNOM (ex : « Simon » sur un widget de RDV) et qu'aucune source fiable ne donne son nom de famille avec l'entreprise : laisse lastName VIDE — n'invente pas, ne « recoupe » pas un homonyme trouvé ailleurs (un « Simon Frayssines » vu sur Codeur n'est PAS forcément le « Simon » du site). Mieux vaut « Simon » seul que « Simon <mauvais nom> ».
+      - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. NE DEVINE PAS un rôle non plus : si le site dit juste « Simon, votre contact pour le RDV », mets role = « Contact prise de rendez-vous » (factuel) et pas « Sales » ou « CEO ». RAPPEL : une personne trouvée UNIQUEMENT au registre légal (Pappers/Societe.com) et absente du site n'apparaît PAS dans la liste. Si gardée parce que la fiche légale concorde ET qu'une autre source la confirme faiblement : « <Titre> (mention RCS) » + confidence "low". Le dirigeant du GROUPE parent ne reçoit JAMAIS un titre « CEO/président de l'entreprise » — il va dans parentCompany.contacts.
+      - note : avertissement éventuel. Exemples : « prénom seul affiché sur le site, nom de famille inconnu », « rôle d'après mentions légales / RCS — à confirmer », « confirmé via le site mais aussi représentant légal au RCS ». Vide si rien à signaler. METS une note dès qu'un champ vient d'une déduction.
       - email : UNIQUEMENT si une source montre clairement que cet email est CELUI DE CETTE PERSONNE (ex : page équipe avec l'email à côté du nom). Vide sinon. Ne devine JAMAIS prenom.nom@domaine.
       - phone : cherche activement la ligne DIRECTE de la personne (page équipe détaillée, signature de communiqué). Ne la renseigne QUE si la source la rattache explicitement à cette personne. Sinon vide (un numéro général va dans companyPhones, jamais collé à une personne).
       - linkedin : URL LinkedIn publique seulement si elle apparaît dans tes résultats de recherche
@@ -701,6 +701,16 @@ def _parse_persona(raw: object) -> ProspectPersona:
         scrubbed = _scrub_legal_role(c.role)
         if scrubbed != (c.role or ""):
             updates["role"] = scrubbed
+        # If the model admits the surname is a guess (note says "déduit",
+        # "recoupement", "à confirmer", "homonyme", "autre hypothèse"…), drop the
+        # surname — we never show a guessed last name.
+        note = (c.note or "")
+        if (c.lastName or "").strip() and re.search(
+            r"(d[ée]duit|recoupement|à\s*confirmer|hypoth[èe]se|homonyme|incertain|probablement)",
+            note, re.IGNORECASE,
+        ):
+            updates["lastName"] = ""
+            updates["note"] = "prénom seul affiché sur le site — nom de famille non confirmé"
         if (c.email or c.phone) and not (c.sourceUrl or "").strip():
             if c.email and c.email not in moved_emails:
                 moved_emails.append(c.email)
