@@ -603,6 +603,7 @@ export interface ProspectContact {
   phone: string
   linkedin: string
   source: string
+  sourceUrl: string
   confidence: TechConfidence
 }
 

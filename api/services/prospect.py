@@ -56,11 +56,28 @@ _MAX_TEXT_EXCERPT = 7000
 
 _SYSTEM = (
     "Tu es un analyste commercial qui prépare des fiches prospect avant des "
-    "rendez-vous de prospection. Tu travailles à partir de ce qui est "
-    "réellement observable sur le site web de l'entreprise (+ une recherche "
-    "web légère si nécessaire). RÈGLE ABSOLUE : tu n'inventes rien. Si une "
-    "information est inconnue, tu laisses la chaîne vide \"\" ou null — jamais "
-    "de supposition présentée comme un fait. "
+    "rendez-vous de prospection B2B. Tu travailles à partir de ce qui est "
+    "réellement observable sur le site web de l'entreprise ET d'une recherche "
+    "web ciblée. RÈGLE ABSOLUE : tu n'inventes rien et tu ne devines aucune "
+    "coordonnée. Si une information est inconnue, tu laisses la chaîne vide "
+    "\"\" ou null — jamais de supposition présentée comme un fait.\n"
+    "RÈGLE COORDONNÉES : un email ou un téléphone ne peut être attribué à une "
+    "PERSONNE que si une source montre explicitement « cette coordonnée "
+    "appartient à cette personne » (page équipe avec email à côté du nom, "
+    "signature, carte de visite publiée…). Dans ce cas, sourceUrl est "
+    "OBLIGATOIRE. Ne JAMAIS rattacher à une personne un numéro/email qui "
+    "figure ailleurs sur le site sans lien explicite — mets-le plutôt dans "
+    "companyEmails/companyPhones. Ne JAMAIS deviner un email type "
+    "prenom.nom@domaine. En cas de doute : champ vide.\n"
+    "SOURCES À UTILISER (recherche web) : annuaires légaux (Pappers, "
+    "Societe.com, Infogreffe — fiables pour raison sociale, dirigeants "
+    "officiels, date de création, adresse du siège) ; le site de l'entreprise "
+    "(pages équipe / contact / mentions légales — priorité pour rattacher une "
+    "coordonnée à une personne) ; articles de presse / interviews / "
+    "communiqués (pour confirmer des rôles explicites « X, directeur "
+    "marketing de … ») ; résultats LinkedIn PUBLICS tels qu'ils apparaissent "
+    "dans la recherche (pour confirmer nom+rôle UNIQUEMENT — jamais de "
+    "numéro/email privé, et tu n'ouvres pas les pages linkedin.com).\n"
     "SORTIE : uniquement le bloc <PROSPECT_JSON>{...}</PROSPECT_JSON>, sans "
     "aucun texte autour, toujours fermé par </PROSPECT_JSON>. Français concis."
 )
@@ -85,7 +102,11 @@ Stack technique DÉJÀ détecté automatiquement (ne le recopie pas, sers-t'en p
 Coordonnées brutes extraites automatiquement du site (à attribuer aux personnes / à l'entreprise) :
 {contacts_raw}
 
-Utilise web_search si nécessaire pour : vérifier la localisation/l'année de création, et trouver des coordonnées publiques (annuaires pro type Pages Jaunes / Societe.com / site officiel) — NE consulte PAS LinkedIn par scraping ; tu peux inclure une URL LinkedIn publique si elle apparaît dans tes résultats de recherche.
+Utilise web_search de façon CIBLÉE :
+- "{domain} Pappers" / "{domain} Societe.com" / "<raison sociale> Infogreffe" → dirigeants officiels, date de création, adresse du siège, raison sociale
+- "<raison sociale> directeur marketing" / "... responsable digital" / "... CEO" → confirmer des rôles explicites dans des articles/communiqués/pages d'équipe
+- recherche du nom de l'entreprise sur les pages équipe / "qui sommes-nous" si non déjà crawlées
+- les extraits LinkedIn publics renvoyés par la recherche peuvent confirmer un nom+rôle (jamais ouvrir linkedin.com, jamais de numéro/email privé)
 
 Produis :
 - identity :
@@ -101,12 +122,21 @@ Produis :
   - likelyContactRoles : 1-3 rôles probables à contacter (ex : "Dirigeant·e", "Responsable marketing", "Responsable e-commerce", "DSI") selon la taille et le secteur
   - likelyPriorities : 2-4 priorités / douleurs probables de ce décideur
   - approachAngles : 2-4 accroches de prospection PERSONNALISÉES, ancrées sur ce qui a réellement été observé sur le site
-  - contacts : liste des PERSONNES nommées trouvées (idéalement les décideurs). Pour chacune : firstName, lastName, role (fonction si connue), email (UNIQUEMENT s'il apparaît tel quel sur le site / dans une source publique ; vide sinon — ne devine PAS), phone, linkedin (URL publique seulement), source (ex : "site:/equipe", "mentions légales", "annuaire web"), confidence ("high" si trouvé verbatim, "medium" si déduit avec un bon faisceau, "low" si hypothèse). Liste vide si aucune personne identifiable.
+  - contacts : liste des PERSONNES nommées trouvées (idéalement les décideurs : dirigeants officiels via Pappers/Societe.com, responsables marketing/digital via le site ou la presse). Pour chacune :
+      - firstName, lastName
+      - role : fonction si elle est explicitement indiquée dans une source (vide sinon)
+      - email : UNIQUEMENT si une source montre clairement que cet email est CELUI DE CETTE PERSONNE (ex : page équipe avec l'email à côté du nom). Vide sinon. Ne devine JAMAIS prenom.nom@domaine.
+      - phone : même règle stricte que l'email — uniquement si rattaché explicitement à la personne dans la source. Sinon vide (le mettre dans companyPhones si c'est un numéro général).
+      - linkedin : URL LinkedIn publique seulement si elle apparaît dans tes résultats de recherche
+      - source : libellé court de la source (ex : "site équipe", "mentions légales", "Pappers", "Societe.com", "presse: Les Échos", "résultat LinkedIn")
+      - sourceUrl : l'URL EXACTE de la source — OBLIGATOIRE dès que tu donnes un email, un phone, ou un rôle non trivial. Si tu ne peux pas donner d'URL de source, alors tu ne donnes pas la coordonnée.
+      - confidence : "high" = nom+rôle (et éventuelle coordonnée) vus verbatim et explicitement attribués dans une source citée ; "medium" = nom+rôle confirmés par recoupement de sources mais pas un seul document explicite ; "low" = signal faible (ne mets pas de coordonnée dans ce cas)
+    Liste vide si aucune personne identifiable de façon fiable.
   - companyEmails : emails GÉNÉRIQUES de l'entreprise (contact@, info@, accueil@…) — pas ceux d'une personne
-  - companyPhones : numéros de téléphone généraux de l'entreprise
-  - companyAddress : adresse postale complète si trouvée, vide sinon
+  - companyPhones : numéros de téléphone généraux de l'entreprise (standard, accueil)
+  - companyAddress : adresse postale complète du siège si trouvée (Pappers/Societe.com/mentions légales), vide sinon
 
-RÈGLE STRICTE sur les contacts : n'écris un email/téléphone/nom QUE s'il provient réellement du site ou d'une source web publique. Si tu n'es pas sûr, laisse vide. Mieux vaut un champ vide qu'une fausse coordonnée.
+RÈGLE STRICTE — coordonnées : n'attribue un email/téléphone à une personne QUE si la source le rattache explicitement à elle, et cite alors sourceUrl. Un numéro qui traîne ailleurs sur le site va dans companyPhones, jamais collé à une personne « parce que ça pourrait être la sienne ». Mieux vaut un champ vide qu'une fausse coordonnée — c'est CRITIQUE : un faux numéro envoie le commercial vers quelqu'un d'autre.
 
 Sortie STRICTE :
 
@@ -127,7 +157,7 @@ Sortie STRICTE :
     "likelyPriorities": ["..."],
     "approachAngles": ["..."],
     "contacts": [
-      {{"firstName": "...", "lastName": "...", "role": "...", "email": "...", "phone": "...", "linkedin": "...", "source": "...", "confidence": "high"}}
+      {{"firstName": "...", "lastName": "...", "role": "...", "email": "...", "phone": "...", "linkedin": "...", "source": "...", "sourceUrl": "...", "confidence": "high"}}
     ],
     "companyEmails": ["..."],
     "companyPhones": ["..."],
@@ -476,10 +506,32 @@ def _parse_persona(raw: object) -> ProspectPersona:
     if not isinstance(raw, dict):
         return ProspectPersona()
     try:
-        return ProspectPersona.model_validate(raw)
+        persona = ProspectPersona.model_validate(raw)
     except Exception as e:
         logger.debug("Bad persona payload: %s", e)
         return ProspectPersona()
+    # Safety net: if a contact carries an email/phone but no source URL, the
+    # attribution is unverified — strip the coordinate (move generic ones to
+    # the company-level lists) and downgrade confidence.
+    moved_emails: list[str] = list(persona.companyEmails)
+    moved_phones: list[str] = list(persona.companyPhones)
+    cleaned: list = []
+    for c in persona.contacts:
+        if (c.email or c.phone) and not (c.sourceUrl or "").strip():
+            if c.email and c.email not in moved_emails:
+                moved_emails.append(c.email)
+            if c.phone and c.phone not in moved_phones:
+                moved_phones.append(c.phone)
+            c = c.model_copy(update={
+                "email": "", "phone": "",
+                "confidence": "low" if c.confidence == "high" else c.confidence,
+            })
+        cleaned.append(c)
+    return persona.model_copy(update={
+        "contacts": cleaned,
+        "companyEmails": moved_emails,
+        "companyPhones": moved_phones,
+    })
 
 
 _OPEN_TAG_RE_CACHE: dict[str, re.Pattern] = {}

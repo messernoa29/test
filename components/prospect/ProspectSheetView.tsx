@@ -160,7 +160,19 @@ export function ProspectSheetView({ sheet }: Props) {
                           )}
                           <ConfidenceDot c={c.confidence} />
                           {c.source && (
-                            <span className="text-[10px] text-text-tertiary">({c.source})</span>
+                            c.sourceUrl ? (
+                              <a
+                                href={c.sourceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[10px] text-text-tertiary hover:text-primary hover:underline"
+                                title={c.sourceUrl}
+                              >
+                                source : {c.source} ↗
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-text-tertiary">({c.source})</span>
+                            )
                           )}
                         </div>
                         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">

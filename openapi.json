@@ -5900,6 +5900,11 @@
             "title": "Source",
             "default": ""
           },
+          "sourceUrl": {
+            "type": "string",
+            "title": "Sourceurl",
+            "default": ""
+          },
           "confidence": {
             "type": "string",
             "enum": [
@@ -5913,7 +5918,7 @@
         },
         "type": "object",
         "title": "ProspectContact",
-        "description": "A named person at the prospect (from the site or public directories)."
+        "description": "A named person at the prospect (from the site or public sources).\n\nStrict rule enforced via the prompt: an email/phone is only filled when the\nsource explicitly attributes it to *this* person; `sourceUrl` is mandatory\nwhenever any coordinate (email/phone) or a non-obvious role is given."
       },
       "ProspectPersona": {
         "properties": {

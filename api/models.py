@@ -1027,16 +1027,22 @@ class ProspectStackByCategory(BaseModel):
 
 
 class ProspectContact(BaseModel):
-    """A named person at the prospect (from the site or public directories)."""
+    """A named person at the prospect (from the site or public sources).
+
+    Strict rule enforced via the prompt: an email/phone is only filled when the
+    source explicitly attributes it to *this* person; `sourceUrl` is mandatory
+    whenever any coordinate (email/phone) or a non-obvious role is given.
+    """
 
     firstName: str = ""
     lastName: str = ""
     role: str = ""          # job title / function if known
-    email: str = ""         # only if found verbatim
-    phone: str = ""
-    linkedin: str = ""      # only if a public LinkedIn URL was found
-    source: str = ""        # where it came from: "site:/equipe", "mentions légales", "annuaire web"…
-    confidence: Literal["high", "medium", "low"] = "medium"  # low = inferred (e.g. guessed email)
+    email: str = ""         # only if the source attributes it to this person
+    phone: str = ""         # only if the source attributes it to this person
+    linkedin: str = ""      # public LinkedIn URL if it appeared in search results
+    source: str = ""        # short label: "site équipe", "mentions légales", "Pappers", "presse: <média>"…
+    sourceUrl: str = ""     # exact URL of the source — REQUIRED when email/phone given
+    confidence: Literal["high", "medium", "low"] = "medium"  # high = verbatim+attributed, low = weak signal
 
 
 class ProspectPersona(BaseModel):
