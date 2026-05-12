@@ -5983,6 +5983,11 @@
             "type": "array",
             "title": "Otheraffiliations"
           },
+          "linkedinSearchUrl": {
+            "type": "string",
+            "title": "Linkedinsearchurl",
+            "default": ""
+          },
           "confidence": {
             "type": "string",
             "enum": [

@@ -486,6 +486,13 @@ def _contact_card(c: ProspectContact, styles: dict) -> Table:
             "Aussi rattaché·e à : " + _esc(" · ".join(c.otherAffiliations), limit=400),
             styles["mono_sec"],
         ))
+    if (c.linkedinSearchUrl or "").strip():
+        left.append(Spacer(1, 3))
+        left.append(Paragraph(
+            f'<a href="{html.escape(c.linkedinSearchUrl, quote=True)}">'
+            f'<font color="#B8892D">🔎 Chercher sur LinkedIn</font></a>',
+            styles["mono_sec"],
+        ))
     right = [_confidence_badge(c.confidence, styles)]
     t = Table([[left, right]], colWidths=[CONTENT_WIDTH - 70 - 24, 70])
     t.setStyle(TableStyle([

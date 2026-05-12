@@ -1074,6 +1074,9 @@ class ProspectContact(BaseModel):
     # lists a person's mandates: "gérant de X", "président de Y"). Helps tell
     # whether a phone/email might belong to a different company than the prospect.
     otherAffiliations: list[str] = Field(default_factory=list)
+    # Pre-filled LinkedIn people-search URL (by name) so a logged-in salesperson
+    # lands on the right profile and reads the coordinates themselves.
+    linkedinSearchUrl: str = ""
     confidence: Literal["high", "medium", "low"] = "medium"  # high = verbatim+attributed, low = weak signal
 
 

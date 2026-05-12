@@ -199,12 +199,25 @@ export function ProspectSheetView({ sheet }: Props) {
                             </a>
                           )}
                           {!c.email && !c.phone && !c.linkedin && (
-                            <span className="text-text-tertiary">Pas de coordonnée directe trouvée</span>
+                            <span className="text-text-tertiary">Pas de coordonnée directe trouvée — voir LinkedIn ci-dessous</span>
                           )}
                         </div>
                         {(c.otherAffiliations?.length ?? 0) > 0 && (
                           <div className="mt-1.5 text-[11px] text-text-tertiary">
                             Aussi rattaché·e à : {c.otherAffiliations!.join(' · ')}
+                          </div>
+                        )}
+                        {c.linkedinSearchUrl && (
+                          <div className="mt-2">
+                            <a
+                              href={c.linkedinSearchUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center px-2 py-0.5 rounded border border-[var(--border-default)] bg-bg-elevated text-[11px] text-primary hover:underline"
+                              title="Recherche LinkedIn par nom — ouvrez le profil pour voir la section Coordonnées"
+                            >
+                              🔎 Chercher sur LinkedIn ↗
+                            </a>
                           </div>
                         )}
                       </div>

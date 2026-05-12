@@ -22,7 +22,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
 import httpx
 
@@ -96,24 +96,30 @@ _SYSTEM = (
     "coordonnée trouvée pourrait en réalité être celle d'une AUTRE de ses "
     "sociétés (ex : un numéro vu sur le site d'une autre entreprise qu'elle "
     "dirige), ne la rattache PAS ici — laisse vide et baisse la confiance.\n"
+    "RÈGLE PRIORITÉ DES SOURCES POUR LES PERSONNES : le SITE de l'entreprise "
+    "prime. Les personnes vues sur le site (page « équipe » / « notre équipe » / "
+    "« about », signatures, mentions légales du site) sont prioritaires et "
+    "doivent TOUJOURS figurer dans la liste contacts. Le registre légal "
+    "(Pappers, Societe.com) ne sert qu'à COMPLÉTER ou CONFIRMER — jamais à "
+    "remplacer ce qui est sur le site. Si le site nomme « Simon Mathieu, "
+    "directeur » et que le RCS nomme une autre personne comme représentant "
+    "légal, c'est Simon Mathieu qui est l'interlocuteur ; l'autre va, au mieux, "
+    "tout en bas avec un avertissement (voir règle suivante).\n"
     "RÈGLE DIRIGEANT LÉGAL ≠ INTERLOCUTEUR (TRÈS IMPORTANT) : un « représentant "
     "légal » / « président » / « gérant » lu sur Pappers ou Societe.com est la "
     "personne enregistrée au RCS pour une SOCIÉTÉ IMMATRICULÉE — ce n'est PAS "
-    "forcément la personne en poste, ni la bonne société. Avant de l'inclure : "
-    "(1) VÉRIFIE que la fiche légale correspond bien au site analysé — adresse "
-    "du siège, nom commercial / enseigne, secteur d'activité doivent concorder "
-    "avec ce que tu vois sur le site et dans ses mentions légales. S'il y a un "
-    "doute (adresse différente, autre activité, autre ville, plusieurs sociétés "
-    "au même nom) : N'INCLUS PAS ce dirigeant — c'est probablement un homonyme "
-    "ou la mauvaise société. (2) Si la fiche légale concorde MAIS que rien "
-    "d'autre (site, page équipe, presse, LinkedIn) ne confirme que la personne "
-    "est réellement en activité dans l'entreprise : tu peux l'inclure mais avec "
-    "confidence=\"low\", role libellé « <Titre> (mention RCS) » (ex : « Président "
-    "(mention RCS) »), et une note dans le champ `note` du contact « dirigeant "
-    "légal déclaré au RCS — à confirmer, peut ne pas être l'interlocuteur "
-    "opérationnel ». N'écris « Président » / « Gérant » SANS le suffixe « (mention "
-    "RCS) » QUE si une source non-légale (site, presse, LinkedIn) confirme que "
-    "la personne occupe bien ce poste aujourd'hui.\n"
+    "forcément la personne en poste, ni la bonne société. NE L'INCLUS PAS DU "
+    "TOUT si cette personne n'apparaît NULLE PART ailleurs que dans le registre "
+    "légal (absente du site, de la page équipe, de la presse, des extraits "
+    "LinkedIn). Une personne trouvée uniquement sur Pappers/Societe.com et "
+    "introuvable sur le site n'a PAS sa place dans le brief — c'est très "
+    "probablement un homonyme, un ancien dirigeant, un président de holding "
+    "sans rôle opérationnel, ou la mauvaise société. Ne l'inclus QUE si (a) la "
+    "fiche légale concorde clairement avec le site (adresse du siège, nom "
+    "commercial, secteur) ET (b) une autre source que le registre confirme "
+    "qu'elle est en activité dans l'entreprise — auquel cas role = « <Titre> » "
+    "(ou « <Titre> (mention RCS) » si la confirmation est faible), confidence "
+    "ajustée, et note explicite si besoin.\n"
     "RÈGLE SOURCEURL : ne cite JAMAIS une URL que tu n'as pas réellement vue "
     "dans tes résultats de recherche ou en parcourant le site. Pas d'URL "
     "« plausible » reconstruite à la main (ex : deviner /equipe/jean-dupont). "
@@ -193,8 +199,8 @@ Produis :
   - approachAngles : 2-4 accroches de prospection PERSONNALISÉES, ancrées sur ce qui a réellement été observé sur le site
   - contacts : liste de TOUTES les PERSONNES nommées que tu identifies de façon fiable — vise l'EXHAUSTIVITÉ, pas seulement 1 ou 2. Ratisse : page « équipe » / « notre équipe » / « about » (chaque membre listé), mentions légales (gérant, dirigeants), Pappers/Societe.com (tous les représentants/dirigeants déclarés), signatures de communiqués, articles de presse, extraits LinkedIn publics. Liste-les toutes (10, 15, 20 si le site le permet), des décideurs jusqu'aux contacts opérationnels (chef de projet, responsable d'agence, etc.). Trie par pertinence pour la prospection : décideurs / dirigeants d'abord, puis le reste. Pour chacune :
       - firstName, lastName
-      - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. Si la personne vient UNIQUEMENT du registre légal (Pappers/Societe.com) et n'est confirmée nulle part ailleurs : écris « <Titre> (mention RCS) » (ex : « Président (mention RCS) ») et baisse confidence à "low". Mieux vaut `role` vide ou « (mention RCS) » qu'un rôle faux. Et n'inclus PAS cette personne du tout si la fiche légale ne correspond pas clairement au site (adresse / nom commercial / secteur différents → probable homonyme ou mauvaise société).
-      - note : avertissement éventuel sur ce contact (ex : « dirigeant légal déclaré au RCS — à confirmer, peut ne pas être l'interlocuteur opérationnel »). Vide si rien à signaler.
+      - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. RAPPEL : une personne trouvée UNIQUEMENT au registre légal (Pappers/Societe.com) et absente du site n'apparaît PAS dans la liste — ne l'invente pas un rôle pour la garder. Si elle est gardée parce que la fiche légale concorde ET qu'une autre source la confirme, mais que cette confirmation reste faible : « <Titre> (mention RCS) » + confidence "low".
+      - note : avertissement éventuel sur ce contact (ex : « confirmé via le site mais aussi représentant légal au RCS », « rôle non confirmé hors registre »). Vide si rien à signaler.
       - email : UNIQUEMENT si une source montre clairement que cet email est CELUI DE CETTE PERSONNE (ex : page équipe avec l'email à côté du nom). Vide sinon. Ne devine JAMAIS prenom.nom@domaine.
       - phone : cherche activement la ligne DIRECTE de la personne (page équipe détaillée, signature de communiqué). Ne la renseigne QUE si la source la rattache explicitement à cette personne. Sinon vide (un numéro général va dans companyPhones, jamais collé à une personne).
       - linkedin : URL LinkedIn publique seulement si elle apparaît dans tes résultats de recherche
@@ -266,6 +272,7 @@ def run_pipeline(sheet: ProspectSheet) -> ProspectSheet:
         stack = detect_tech_stack(home_html, home_headers)
 
         identity, persona = _enrich_with_llm(sheet.url, sheet.domain, pages, stack)
+        persona = _add_linkedin_search(persona, identity)
         identity, persona = _verify_source_urls(identity, persona)
         return sheet.model_copy(
             update={
@@ -672,6 +679,28 @@ def _extract_json(response: LLMResponse, *, tag: str) -> Optional[dict]:
         logger.warning("%s JSON invalid: %s", tag, e)
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _add_linkedin_search(
+    persona: ProspectPersona, identity: ProspectCompanyIdentity
+) -> ProspectPersona:
+    """Attach a pre-filled LinkedIn people-search URL to each named contact.
+    Search by full name when we have a surname (adding the company name would
+    return zero results); if only a first name is known, disambiguate with the
+    company name. We don't fetch anything here."""
+    company = (identity.name or "").strip()
+    out: list = []
+    for c in persona.contacts:
+        first = (c.firstName or "").strip()
+        last = (c.lastName or "").strip()
+        full = " ".join(b for b in [first, last] if b).strip()
+        if not full:
+            out.append(c)
+            continue
+        keywords = full if last else " ".join(b for b in [first, company] if b).strip()
+        url = f"https://www.linkedin.com/search/results/people/?keywords={quote_plus(keywords)}"
+        out.append(c.model_copy(update={"linkedinSearchUrl": url}))
+    return persona.model_copy(update={"contacts": out})
 
 
 def _url_status(client: httpx.Client, url: str) -> Optional[int]:
