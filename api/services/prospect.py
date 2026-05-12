@@ -684,16 +684,20 @@ def _add_search_links(
     company = (identity.name or "").strip()
     new_contacts: list = []
     for c in persona.contacts:
-        full = " ".join(b for b in [c.firstName, c.lastName] if (b or "").strip()).strip()
+        first = (c.firstName or "").strip()
+        last = (c.lastName or "").strip()
+        full = " ".join(b for b in [first, last] if b).strip()
         if not full:
             new_contacts.append(c)
             continue
         q_person = quote_plus(full)
         q_combo = quote_plus(f"{full} {company}".strip())
+        # LinkedIn: full name alone if we have a surname (adding the company
+        # name otherwise returns zero results). If only a first name is known,
+        # disambiguate with the company name — "Marie" alone is useless.
+        ln_keywords = q_person if last else quote_plus(f"{full} {company}".strip())
         links = {
-            # LinkedIn: name ONLY — adding the company name yields zero results
-            # (nobody has the company in their name field).
-            "linkedin": f"https://www.linkedin.com/search/results/people/?keywords={q_person}",
+            "linkedin": f"https://www.linkedin.com/search/results/people/?keywords={ln_keywords}",
             "pappers": f"https://www.pappers.fr/recherche?q={q_combo}",
             "societe": f"https://www.societe.com/cgi-bin/search?champs={q_person}",
             "google": f"https://www.google.com/search?q={q_combo}",
