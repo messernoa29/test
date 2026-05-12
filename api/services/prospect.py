@@ -156,14 +156,14 @@ Stack technique DÉJÀ détecté automatiquement (ne le recopie pas, sers-t'en p
 Coordonnées brutes extraites automatiquement du site (à attribuer aux personnes / à l'entreprise) :
 {contacts_raw}
 
-Utilise web_search de façon INTENSIVE — fais plusieurs requêtes, surtout pour les personnes :
-- "<raison sociale> équipe" / "<raison sociale> notre équipe" / "<raison sociale> qui sommes-nous" / "<nom commercial> team" → trouver les membres de l'équipe que le site ne montre pas directement
-- "<raison sociale> linkedin" / "<nom commercial> linkedin employés" → repérer noms + rôles via les extraits LinkedIn publics (jamais ouvrir linkedin.com, jamais de numéro/email privé)
-- "<raison sociale> directeur" / "... fondateur" / "... CEO" / "... responsable commercial" / "... gérant" → confirmer des postes réels dans des articles, communiqués, interviews
-- "{domain} Pappers" / "{domain} Societe.com" / "<raison sociale> Infogreffe" → dirigeants officiels, ACTIONNAIRES / société mère, date de création, adresse du siège, raison sociale
-- "<prénom nom> Pappers" / "<prénom nom> dirigeant" pour CHAQUE personne trouvée → vérifier que c'est la bonne personne (pas un homonyme), repérer ses autres mandats (→ otherAffiliations)
-- "<raison sociale> rachat" / "... groupe" / "... filiale de" → détecter une maison-mère / un rachat, puis "<nom du groupe> PDG / dirigeants" pour ses contacts
-- si le site n'a quasiment aucun nom (ex : site vitrine Webflow/Wix), c'est encore plus important : la recherche web est ta source principale pour les personnes — ne te contente pas du seul nom des mentions légales
+Utilise web_search de façon INTENSIVE. Tu DOIS faire AU MOINS ces recherches avant de finaliser (plusieurs requêtes, pas une seule) :
+1. site:linkedin.com/in "<raison sociale>" — puis idem avec le nom commercial, puis avec le nom du groupe/maison-mère s'il y en a un. Les extraits LinkedIn publics renvoyés te donnent des noms + postes d'employés actuels. (Tu n'ouvres pas linkedin.com et tu ne reprends jamais de numéro/email privé — uniquement nom + rôle visibles dans le snippet.)
+2. "<raison sociale> équipe" / "<raison sociale> notre équipe" / "<raison sociale> qui sommes-nous" / "<nom commercial> team" — membres de l'équipe que le site ne montre pas directement.
+3. "<raison sociale> directeur" / "... fondateur" / "... CEO" / "... responsable commercial" / "... gérant" / "<prénom seul vu sur le site> <raison sociale>" — confirmer/compléter des postes réels via articles, interviews, Codeur, Malt, communiqués. Si le site ne donne qu'un PRÉNOM (ex : « Simon » sur un widget de RDV), cherche activement « Simon <raison sociale> » et « Simon <raison sociale> linkedin » pour retrouver son nom de famille et son poste — et s'il y a plusieurs candidats, choisis le mieux sourcé MAIS signale le doute dans `note`.
+4. "{domain} Pappers" / "{domain} Societe.com" / "<raison sociale> Infogreffe" — dirigeants officiels, ACTIONNAIRES / société mère, date de création, adresse du siège, raison sociale.
+5. "<prénom nom> Pappers" / "<prénom nom> dirigeant" pour CHAQUE personne trouvée — vérifier que c'est la bonne personne (pas un homonyme), repérer ses autres mandats (→ otherAffiliations).
+6. "<raison sociale> rachat" / "... groupe" / "... filiale de" — détecter une maison-mère / un rachat, puis "<nom du groupe> PDG / dirigeants" pour ses contacts.
+Si le site n'a quasiment aucun nom (site vitrine Webflow/Wix…), la recherche web — surtout l'étape 1 (linkedin/in) — est ta source PRINCIPALE pour les personnes : ne te contente jamais du seul nom des mentions légales.
 
 Produis :
 - identity :
@@ -190,7 +190,7 @@ Produis :
   - contacts : liste de TOUTES les PERSONNES nommées — commence IMPÉRATIVEMENT par tous les gens nommés sur le SITE (page équipe / notre équipe / about, signatures, mentions légales du site, auteurs du blog, pages projets). Chaque membre cité sur le site = un contact ici (confidence "high"/"medium"), sans vérification supplémentaire. Ne renvoie PAS une liste vide si le site nomme des gens. Ajoute ensuite, en complément, les décideurs trouvés via Pappers/Societe.com/presse/LinkedIn que le site ne nomme pas. N'ajoute PAS une personne qui n'existe QUE dans le registre légal et nulle part ailleurs. Vise l'exhaustivité (5, 10, 15+ si le site les nomme), décideurs en tête puis opérationnels. Pour chacune :
       - firstName, lastName
       - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. RAPPEL : une personne trouvée UNIQUEMENT au registre légal (Pappers/Societe.com) et absente du site n'apparaît PAS dans la liste — ne l'invente pas un rôle pour la garder. Si elle est gardée parce que la fiche légale concorde ET qu'une autre source la confirme, mais que cette confirmation reste faible : « <Titre> (mention RCS) » + confidence "low".
-      - note : avertissement éventuel sur ce contact (ex : « confirmé via le site mais aussi représentant légal au RCS », « rôle non confirmé hors registre »). Vide si rien à signaler.
+      - note : avertissement éventuel sur ce contact. Exemples : « nom de famille déduit de la recherche web — à confirmer ; autre hypothèse : Simon Frayssines », « rôle d'après mentions légales / RCS — à confirmer », « confirmé via le site mais aussi représentant légal au RCS ». Vide si rien à signaler. METS TOUJOURS une note quand le nom de famille ou le rôle vient d'une déduction et pas d'une source qui nomme la personne explicitement avec l'entreprise.
       - email : UNIQUEMENT si une source montre clairement que cet email est CELUI DE CETTE PERSONNE (ex : page équipe avec l'email à côté du nom). Vide sinon. Ne devine JAMAIS prenom.nom@domaine.
       - phone : cherche activement la ligne DIRECTE de la personne (page équipe détaillée, signature de communiqué). Ne la renseigne QUE si la source la rattache explicitement à cette personne. Sinon vide (un numéro général va dans companyPhones, jamais collé à une personne).
       - linkedin : URL LinkedIn publique seulement si elle apparaît dans tes résultats de recherche
