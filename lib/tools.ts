@@ -55,6 +55,15 @@ export const TOOLS: Tool[] = [
     icon: 'content',
   },
   {
+    id: 'prospect',
+    name: 'Fiche prospect',
+    description:
+      "Brief avant-démarchage : identité, stack technique, persona & angles d'approche",
+    href: '/prospect',
+    status: 'live',
+    icon: 'competitor',
+  },
+  {
     id: 'ai-visibility',
     name: 'AI Visibility',
     description: 'Vérifie si un site est cité par les moteurs AI sur ses requêtes',

@@ -24,6 +24,7 @@ from api.db.models import (
     CompetitorBattleRow,
     ContentBriefRow,
     PerfMonitorRow,
+    ProspectSheetRow,
     SeoCampaignRow,
     SitemapWatchRow,
 )
@@ -36,6 +37,7 @@ from api.models import (
     ContentBrief,
     CrawlData,
     PerfMonitor,
+    ProspectSheet,
     SeoCampaign,
     SitemapWatch,
 )
@@ -346,6 +348,74 @@ class SqlAuditStore:
     def delete_brief(self, brief_id: str) -> bool:
         with self._session() as s:
             row = s.get(ContentBriefRow, brief_id)
+            if row is None:
+                return False
+            s.delete(row)
+            s.commit()
+            return True
+
+    # ------------------------------------------------------------------
+    # Prospect sheets
+
+    def save_prospect(self, sheet: ProspectSheet) -> None:
+        now = datetime.now(timezone.utc)
+        with self._session() as s:
+            row = s.get(ProspectSheetRow, sheet.id)
+            if row is None:
+                row = ProspectSheetRow(
+                    id=sheet.id,
+                    url=sheet.url,
+                    domain=sheet.domain,
+                    status=sheet.status,
+                    error=sheet.error,
+                    created_at=_parse_iso_datetime(sheet.createdAt) or now,
+                    updated_at=now,
+                    payload_json=sheet.model_dump(mode="json"),
+                )
+                s.add(row)
+            else:
+                row.url = sheet.url
+                row.domain = sheet.domain
+                row.status = sheet.status
+                row.error = sheet.error
+                row.payload_json = sheet.model_dump(mode="json")
+            s.commit()
+
+    def get_prospect(self, prospect_id: str) -> Optional[ProspectSheet]:
+        with self._session() as s:
+            row = s.get(ProspectSheetRow, prospect_id)
+            if row is None or row.payload_json is None:
+                return None
+            try:
+                return ProspectSheet.model_validate(row.payload_json)
+            except Exception as e:
+                logger.warning("Could not decode prospect %s: %s", prospect_id, e)
+                return None
+
+    def list_prospects(self, limit: int = 20) -> list[ProspectSheet]:
+        with self._session() as s:
+            rows = (
+                s.execute(
+                    select(ProspectSheetRow)
+                    .order_by(ProspectSheetRow.created_at.desc())
+                    .limit(limit)
+                )
+                .scalars()
+                .all()
+            )
+            out: list[ProspectSheet] = []
+            for r in rows:
+                if r.payload_json is None:
+                    continue
+                try:
+                    out.append(ProspectSheet.model_validate(r.payload_json))
+                except Exception as e:
+                    logger.warning("Skipping prospect %s: %s", r.id, e)
+            return out
+
+    def delete_prospect(self, prospect_id: str) -> bool:
+        with self._session() as s:
+            row = s.get(ProspectSheetRow, prospect_id)
             if row is None:
                 return False
             s.delete(row)

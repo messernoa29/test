@@ -1132,6 +1132,165 @@
         }
       }
     },
+    "/prospect": {
+      "get": {
+        "tags": [
+          "prospect"
+        ],
+        "summary": "List Prospects",
+        "operationId": "list_prospects_prospect_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProspectSheet"
+                  },
+                  "type": "array",
+                  "title": "Response List Prospects Prospect Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "prospect"
+        ],
+        "summary": "Start Prospect",
+        "operationId": "start_prospect_prospect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProspectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectSheet"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
+    },
+    "/prospect/{prospect_id}": {
+      "get": {
+        "tags": [
+          "prospect"
+        ],
+        "summary": "Get Prospect",
+        "operationId": "get_prospect_prospect__prospect_id__get",
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "prospect_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Prospect Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectSheet"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "prospect"
+        ],
+        "summary": "Delete Prospect",
+        "operationId": "delete_prospect_prospect__prospect_id__delete",
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "prospect_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Prospect Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/settings/branding": {
       "get": {
         "tags": [
@@ -2321,7 +2480,7 @@
     "/auth/verify": {
       "get": {
         "summary": "Auth Verify",
-        "description": "200 if creds OK, 401 otherwise. Used by the login screen.",
+        "description": "200 if creds OK, 401 otherwise. Used by the login screen / token checks.",
         "operationId": "auth_verify_auth_verify_get",
         "responses": {
           "200": {
@@ -2346,6 +2505,103 @@
         ]
       }
     },
+    "/auth/token": {
+      "post": {
+        "summary": "Auth Token",
+        "description": "Exchange the shared password for an opaque session token.\n\nBody: {\"password\": \"...\"}. On success returns {\"token\", \"expiresIn\"} so\nthe client can store the token instead of the raw password.",
+        "operationId": "auth_token_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Auth Token Auth Token Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Auth Logout",
+        "description": "Revoke a session token. Body: {\"token\": \"...\"}.",
+        "operationId": "auth_logout_auth_logout_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Auth Logout Auth Logout Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -2368,6 +2624,107 @@
   },
   "components": {
     "schemas": {
+      "A11yPageIssue": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "score": {
+            "type": "integer",
+            "title": "Score",
+            "default": 0
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "A11yPageIssue"
+      },
+      "AccessibilityAudit": {
+        "properties": {
+          "averageScore": {
+            "type": "integer",
+            "title": "Averagescore",
+            "default": 0
+          },
+          "pagesWithoutLang": {
+            "type": "integer",
+            "title": "Pageswithoutlang",
+            "default": 0
+          },
+          "imagesWithoutAlt": {
+            "type": "integer",
+            "title": "Imageswithoutalt",
+            "default": 0
+          },
+          "formInputsWithoutLabel": {
+            "type": "integer",
+            "title": "Forminputswithoutlabel",
+            "default": 0
+          },
+          "linksGeneric": {
+            "type": "integer",
+            "title": "Linksgeneric",
+            "default": 0
+          },
+          "buttonsAsDiv": {
+            "type": "integer",
+            "title": "Buttonsasdiv",
+            "default": 0
+          },
+          "pagesWithHeadingIssues": {
+            "type": "integer",
+            "title": "Pageswithheadingissues",
+            "default": 0
+          },
+          "pagesWithPositiveTabindex": {
+            "type": "integer",
+            "title": "Pageswithpositivetabindex",
+            "default": 0
+          },
+          "pagesWithoutLandmarks": {
+            "type": "integer",
+            "title": "Pageswithoutlandmarks",
+            "default": 0
+          },
+          "pageScores": {
+            "items": {
+              "$ref": "#/components/schemas/A11yPageIssue"
+            },
+            "type": "array",
+            "title": "Pagescores"
+          },
+          "llmVerdict": {
+            "type": "string",
+            "title": "Llmverdict",
+            "default": ""
+          },
+          "llmTopFixes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Llmtopfixes"
+          },
+          "llmPagesEvaluated": {
+            "type": "integer",
+            "title": "Llmpagesevaluated",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "AccessibilityAudit",
+        "description": "WCAG audit — static signals aggregated across pages + an optional LLM\nverdict on a few key pages."
+      },
       "AgencyBranding": {
         "properties": {
           "name": {
@@ -2896,7 +3253,25 @@
           "maxPages": {
             "type": "integer",
             "title": "Maxpages",
-            "default": 50
+            "default": 300
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "custom",
+              "webflow",
+              "wordpress",
+              "shopify",
+              "wix",
+              "squarespace",
+              "bubble",
+              "framer",
+              "nextjs",
+              "other"
+            ],
+            "title": "Platform",
+            "default": "unknown"
           }
         },
         "type": "object",
@@ -3051,6 +3426,43 @@
                 "type": "null"
               }
             ]
+          },
+          "crawlCoverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrawlCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accessibilityAudit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessibilityAudit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "responsiveAudit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResponsiveAudit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "factsSnapshot": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Factssnapshot"
           }
         },
         "type": "object",
@@ -3212,6 +3624,43 @@
                 "type": "null"
               }
             ]
+          },
+          "crawlCoverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrawlCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accessibilityAudit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessibilityAudit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "responsiveAudit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResponsiveAudit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "factsSnapshot": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Factssnapshot"
           }
         },
         "type": "object",
@@ -3804,6 +4253,43 @@
         "title": "ContentBriefResult",
         "description": "LLM-produced editorial brief from the SERP analysis."
       },
+      "CrawlCoverage": {
+        "properties": {
+          "requestedMaxPages": {
+            "type": "integer",
+            "title": "Requestedmaxpages",
+            "default": 0
+          },
+          "discoveredUrlCount": {
+            "type": "integer",
+            "title": "Discoveredurlcount",
+            "default": 0
+          },
+          "crawledPageCount": {
+            "type": "integer",
+            "title": "Crawledpagecount",
+            "default": 0
+          },
+          "detailedPageCount": {
+            "type": "integer",
+            "title": "Detailedpagecount",
+            "default": 0
+          },
+          "cappedByLimit": {
+            "type": "boolean",
+            "title": "Cappedbylimit",
+            "default": false
+          },
+          "cappedBySite": {
+            "type": "boolean",
+            "title": "Cappedbysite",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "CrawlCoverage",
+        "description": "How much of the site the crawl covered vs what was asked, and how many\npages the LLM analysed in detail."
+      },
       "CulturalAuditSummary-Input": {
         "properties": {
           "isMultilingual": {
@@ -3926,6 +4412,40 @@
         ],
         "title": "CulturalPageIssue"
       },
+      "DetectedTech": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidence",
+            "default": "medium"
+          },
+          "evidence": {
+            "type": "string",
+            "title": "Evidence",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "name"
+        ],
+        "title": "DetectedTech",
+        "description": "A single technology spotted on the prospect's site."
+      },
       "DriftResponse": {
         "properties": {
           "baselineId": {
@@ -3976,6 +4496,19 @@
           "persistentCount": {
             "type": "integer",
             "title": "Persistentcount"
+          },
+          "factDeltas": {
+            "items": {
+              "$ref": "#/components/schemas/FactDeltaOut"
+            },
+            "type": "array",
+            "title": "Factdeltas",
+            "default": []
+          },
+          "factsUnavailable": {
+            "type": "boolean",
+            "title": "Factsunavailable",
+            "default": false
           }
         },
         "type": "object",
@@ -4049,6 +4582,49 @@
           "keyword"
         ],
         "title": "EstimatedKeyword"
+      },
+      "FactDeltaOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "baseline": {
+            "type": "integer",
+            "title": "Baseline"
+          },
+          "current": {
+            "type": "integer",
+            "title": "Current"
+          },
+          "delta": {
+            "type": "integer",
+            "title": "Delta"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "lowerIsBetter": {
+            "type": "boolean",
+            "title": "Lowerisbetter"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "baseline",
+          "current",
+          "delta",
+          "direction",
+          "lowerIsBetter"
+        ],
+        "title": "FactDeltaOut"
       },
       "Finding": {
         "properties": {
@@ -4246,11 +4822,28 @@
             "type": "boolean",
             "title": "Hasllmstxt",
             "default": false
+          },
+          "queryVerdicts": {
+            "items": {
+              "$ref": "#/components/schemas/GeoQueryVerdict"
+            },
+            "type": "array",
+            "title": "Queryverdicts"
+          },
+          "citedCount": {
+            "type": "integer",
+            "title": "Citedcount",
+            "default": 0
+          },
+          "queriesTested": {
+            "type": "integer",
+            "title": "Queriestested",
+            "default": 0
           }
         },
         "type": "object",
         "title": "GeoAuditSummary",
-        "description": "GEO (AI-citability) audit. Page scores + site-level robots/llms.txt."
+        "description": "GEO (AI-citability) audit. Page scores + site-level robots/llms.txt +\na real \"would AI cite this site?\" test on plausible intent queries."
       },
       "GeoPageScore": {
         "properties": {
@@ -4283,6 +4876,59 @@
           "url"
         ],
         "title": "GeoPageScore"
+      },
+      "GeoQueryVerdict": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "intent": {
+            "type": "string",
+            "title": "Intent",
+            "default": ""
+          },
+          "likelyCited": {
+            "type": "boolean",
+            "title": "Likelycited",
+            "default": false
+          },
+          "confidence": {
+            "type": "string",
+            "title": "Confidence",
+            "default": "low"
+          },
+          "citingEngines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Citingengines"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "competitorsCitedInstead": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Competitorscitedinstead"
+          },
+          "improvement": {
+            "type": "string",
+            "title": "Improvement",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "GeoQueryVerdict",
+        "description": "One plausible search query and whether the site would likely be cited\nby AI assistants on it."
       },
       "HTTPValidationError": {
         "properties": {
@@ -4549,6 +5195,23 @@
                 "type": "null"
               }
             ]
+          },
+          "representsCount": {
+            "type": "integer",
+            "title": "Representscount",
+            "default": 0
+          },
+          "representsPattern": {
+            "type": "string",
+            "title": "Representspattern",
+            "default": ""
+          },
+          "representsSampleUrls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Representssampleurls"
           }
         },
         "type": "object",
@@ -5144,6 +5807,348 @@
           "pattern"
         ],
         "title": "ProgrammaticGroup"
+      },
+      "ProspectCompanyIdentity": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "location": {
+            "type": "string",
+            "title": "Location",
+            "default": ""
+          },
+          "sector": {
+            "type": "string",
+            "title": "Sector",
+            "default": ""
+          },
+          "estimatedFoundedYear": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimatedfoundedyear"
+          },
+          "estimatedSize": {
+            "type": "string",
+            "title": "Estimatedsize",
+            "default": ""
+          },
+          "socialProfiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Socialprofiles"
+          },
+          "onlinePresenceNotes": {
+            "type": "string",
+            "title": "Onlinepresencenotes",
+            "default": ""
+          },
+          "valueProposition": {
+            "type": "string",
+            "title": "Valueproposition",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ProspectCompanyIdentity",
+        "description": "Who the company is — guessed from the site + light web search."
+      },
+      "ProspectPersona": {
+        "properties": {
+          "likelyContactRoles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Likelycontactroles"
+          },
+          "likelyPriorities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Likelypriorities"
+          },
+          "approachAngles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Approachangles"
+          }
+        },
+        "type": "object",
+        "title": "ProspectPersona",
+        "description": "Likely decision-maker + tailored prospecting angles."
+      },
+      "ProspectRequest": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2083,
+            "minLength": 1,
+            "format": "uri",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "ProspectRequest"
+      },
+      "ProspectSheet": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "default": "pending"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProspectCompanyIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stack": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProspectStackByCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "persona": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProspectPersona"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "url",
+          "domain",
+          "createdAt"
+        ],
+        "title": "ProspectSheet",
+        "description": "A prospecting sheet job — request + status + result."
+      },
+      "ProspectStackByCategory": {
+        "properties": {
+          "cms": {
+            "items": {
+              "$ref": "#/components/schemas/DetectedTech"
+            },
+            "type": "array",
+            "title": "Cms"
+          },
+          "analytics": {
+            "items": {
+              "$ref": "#/components/schemas/DetectedTech"
+            },
+            "type": "array",
+            "title": "Analytics"
+          },
+          "advertising": {
+            "items": {
+              "$ref": "#/components/schemas/DetectedTech"
+            },
+            "type": "array",
+            "title": "Advertising"
+          },
+          "chatCrm": {
+            "items": {
+              "$ref": "#/components/schemas/DetectedTech"
+            },
+            "type": "array",
+            "title": "Chatcrm"
+          },
+          "hostingCdn": {
+            "items": {
+              "$ref": "#/components/schemas/DetectedTech"
+            },
+            "type": "array",
+            "title": "Hostingcdn"
+          },
+          "other": {
+            "items": {
+              "$ref": "#/components/schemas/DetectedTech"
+            },
+            "type": "array",
+            "title": "Other"
+          }
+        },
+        "type": "object",
+        "title": "ProspectStackByCategory",
+        "description": "Detected tech stack, grouped by category."
+      },
+      "ResponsiveAudit": {
+        "properties": {
+          "pagesWithoutViewport": {
+            "type": "integer",
+            "title": "Pageswithoutviewport",
+            "default": 0
+          },
+          "pagesBlockingZoom": {
+            "type": "integer",
+            "title": "Pagesblockingzoom",
+            "default": 0
+          },
+          "pagesWithMediaQueries": {
+            "type": "integer",
+            "title": "Pageswithmediaqueries",
+            "default": 0
+          },
+          "imagesWithSrcsetRatio": {
+            "type": "number",
+            "title": "Imageswithsrcsetratio",
+            "default": 0.0
+          },
+          "renderedPagesTested": {
+            "type": "integer",
+            "title": "Renderedpagestested",
+            "default": 0
+          },
+          "pagesWithHorizontalScroll": {
+            "type": "integer",
+            "title": "Pageswithhorizontalscroll",
+            "default": 0
+          },
+          "pageResults": {
+            "items": {
+              "$ref": "#/components/schemas/ResponsivePageIssue"
+            },
+            "type": "array",
+            "title": "Pageresults"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ResponsiveAudit",
+        "description": "Responsive / mobile audit — static signals + Playwright rendering at\n375 / 768 / 1280 px on a few key pages."
+      },
+      "ResponsivePageIssue": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "horizontalScrollAt375": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Horizontalscrollat375"
+          },
+          "horizontalScrollAt768": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Horizontalscrollat768"
+          },
+          "overflowingElementsAt375": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overflowingelementsat375"
+          },
+          "smallTouchTargetsAt375": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smalltouchtargetsat375"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "ResponsivePageIssue"
       },
       "ScoreDeltaOut": {
         "properties": {

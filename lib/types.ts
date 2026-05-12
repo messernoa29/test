@@ -562,6 +562,57 @@ export interface ContentBrief {
   result?: ContentBriefResult
 }
 
+// --- Prospect Sheet ---------------------------------------------------------
+
+export type ProspectStatus = 'pending' | 'running' | 'done' | 'failed'
+
+export type TechConfidence = 'high' | 'medium' | 'low'
+
+export interface DetectedTech {
+  category: string
+  name: string
+  confidence: TechConfidence
+  evidence: string
+}
+
+export interface ProspectCompanyIdentity {
+  name: string
+  location: string
+  sector: string
+  estimatedFoundedYear: number | null
+  estimatedSize: string
+  socialProfiles: string[]
+  onlinePresenceNotes: string
+  valueProposition: string
+}
+
+export interface ProspectStackByCategory {
+  cms: DetectedTech[]
+  analytics: DetectedTech[]
+  advertising: DetectedTech[]
+  chatCrm: DetectedTech[]
+  hostingCdn: DetectedTech[]
+  other: DetectedTech[]
+}
+
+export interface ProspectPersona {
+  likelyContactRoles: string[]
+  likelyPriorities: string[]
+  approachAngles: string[]
+}
+
+export interface ProspectSheet {
+  id: string
+  url: string
+  domain: string
+  createdAt: string
+  status: ProspectStatus
+  error: string | null
+  identity: ProspectCompanyIdentity | null
+  stack: ProspectStackByCategory | null
+  persona: ProspectPersona | null
+}
+
 // --- AI Search Visibility ---------------------------------------------------
 
 export type AiVisibilityStatus = 'pending' | 'running' | 'done' | 'failed'

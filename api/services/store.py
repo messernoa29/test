@@ -22,6 +22,7 @@ from api.models import (
     ContentBrief,
     CrawlData,
     PerfMonitor,
+    ProspectSheet,
     SeoCampaign,
     SitemapWatch,
 )
@@ -43,6 +44,7 @@ class InMemoryAuditStore:
         self._jobs: dict[str, AuditJob] = {}
         self._battles: dict[str, CompetitorBattle] = {}
         self._briefs: dict[str, ContentBrief] = {}
+        self._prospects: dict[str, ProspectSheet] = {}
         self._ai_checks: dict[str, AiVisibilityCheck] = {}
         self._bulks: dict[str, BulkAudit] = {}
         self._sitemaps: dict[str, SitemapWatch] = {}
@@ -215,6 +217,28 @@ class InMemoryAuditStore:
     def delete_brief(self, brief_id: str) -> bool:
         with self._lock:
             return self._briefs.pop(brief_id, None) is not None
+
+    # ------------------------------------------------------------------
+    # Prospect sheets
+
+    def save_prospect(self, sheet: ProspectSheet) -> None:
+        with self._lock:
+            self._prospects[sheet.id] = sheet
+
+    def get_prospect(self, prospect_id: str) -> Optional[ProspectSheet]:
+        with self._lock:
+            return self._prospects.get(prospect_id)
+
+    def list_prospects(self, limit: int = 20) -> list[ProspectSheet]:
+        with self._lock:
+            items = sorted(
+                self._prospects.values(), key=lambda p: p.createdAt, reverse=True,
+            )
+            return items[:limit]
+
+    def delete_prospect(self, prospect_id: str) -> bool:
+        with self._lock:
+            return self._prospects.pop(prospect_id, None) is not None
 
     # ------------------------------------------------------------------
     # AI visibility checks

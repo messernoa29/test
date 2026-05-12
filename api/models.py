@@ -988,6 +988,70 @@ class ContentBriefRequest(BaseModel):
     locale: str = Field(default="fr-FR", min_length=2, max_length=10)
 
 
+# --- Prospect Sheet ---------------------------------------------------------
+
+ProspectStatus = Literal["pending", "running", "done", "failed"]
+
+
+class DetectedTech(BaseModel):
+    """A single technology spotted on the prospect's site."""
+
+    category: str
+    name: str
+    confidence: Literal["high", "medium", "low"] = "medium"
+    evidence: str = ""
+
+
+class ProspectCompanyIdentity(BaseModel):
+    """Who the company is — guessed from the site + light web search."""
+
+    name: str = ""
+    location: str = ""
+    sector: str = ""
+    estimatedFoundedYear: Optional[int] = None
+    estimatedSize: str = ""  # TPE / PME / ETI / grande entreprise
+    socialProfiles: list[str] = Field(default_factory=list)
+    onlinePresenceNotes: str = ""
+    valueProposition: str = ""
+
+
+class ProspectStackByCategory(BaseModel):
+    """Detected tech stack, grouped by category."""
+
+    cms: list[DetectedTech] = Field(default_factory=list)
+    analytics: list[DetectedTech] = Field(default_factory=list)
+    advertising: list[DetectedTech] = Field(default_factory=list)
+    chatCrm: list[DetectedTech] = Field(default_factory=list)
+    hostingCdn: list[DetectedTech] = Field(default_factory=list)
+    other: list[DetectedTech] = Field(default_factory=list)
+
+
+class ProspectPersona(BaseModel):
+    """Likely decision-maker + tailored prospecting angles."""
+
+    likelyContactRoles: list[str] = Field(default_factory=list)
+    likelyPriorities: list[str] = Field(default_factory=list)
+    approachAngles: list[str] = Field(default_factory=list)
+
+
+class ProspectSheet(BaseModel):
+    """A prospecting sheet job — request + status + result."""
+
+    id: str
+    url: str
+    domain: str
+    createdAt: str
+    status: ProspectStatus = "pending"
+    error: Optional[str] = None
+    identity: Optional[ProspectCompanyIdentity] = None
+    stack: Optional[ProspectStackByCategory] = None
+    persona: Optional[ProspectPersona] = None
+
+
+class ProspectRequest(BaseModel):
+    url: HttpUrl
+
+
 # --- AI Search Visibility ---------------------------------------------------
 
 AiVisibilityStatus = Literal["pending", "running", "done", "failed"]

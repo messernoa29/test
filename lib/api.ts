@@ -8,6 +8,7 @@ import type {
   ContentBrief,
   DriftReport,
   PerfMonitor,
+  ProspectSheet,
   SeoCampaign,
   SitemapWatch,
 } from './types'
@@ -374,6 +375,30 @@ export async function getContentBrief(id: string): Promise<ContentBrief> {
 
 export async function deleteContentBrief(id: string): Promise<void> {
   await request<void>(`/content-brief/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+// --- Prospect Sheet --------------------------------------------------------
+
+export async function createProspectSheet(url: string): Promise<ProspectSheet> {
+  return request<ProspectSheet>('/prospect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  })
+}
+
+export async function listProspects(): Promise<ProspectSheet[]> {
+  return request<ProspectSheet[]>('/prospect')
+}
+
+export async function getProspect(id: string): Promise<ProspectSheet> {
+  return request<ProspectSheet>(`/prospect/${encodeURIComponent(id)}`)
+}
+
+export async function deleteProspect(id: string): Promise<void> {
+  await request<void>(`/prospect/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
 }

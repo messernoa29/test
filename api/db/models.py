@@ -87,6 +87,33 @@ class ContentBriefRow(Base):
     )
 
 
+class ProspectSheetRow(Base):
+    __tablename__ = "prospect_sheets"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    domain: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    __table_args__ = (
+        Index("ix_prospects_created", "created_at"),
+        Index("ix_prospects_status", "status"),
+    )
+
+
 class AiVisibilityRow(Base):
     __tablename__ = "ai_visibility_checks"
 

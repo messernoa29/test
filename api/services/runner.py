@@ -21,6 +21,7 @@ from api.models import (
     CompetitorBattle,
     CompetitorSite,
     ContentBrief,
+    ProspectSheet,
 )
 from api.services import (
     ai_visibility,
@@ -28,6 +29,7 @@ from api.services import (
     brief as brief_service,
     crawler,
     pagespeed,
+    prospect as prospect_service,
 )
 from api.services.store import get_store
 
@@ -479,6 +481,39 @@ def create_brief_job(query: str, locale: str = "fr-FR") -> ContentBrief:
     get_store().save_brief(brief)
     submit_brief(brief.id)
     return brief
+
+
+# ---------------------------------------------------------------------------
+# Prospect sheets
+
+
+def submit_prospect(sheet_id: str) -> None:
+    _get_executor().submit(_run_prospect, sheet_id)
+
+
+def _run_prospect(sheet_id: str) -> None:
+    store = get_store()
+    sheet = store.get_prospect(sheet_id)
+    if sheet is None:
+        return
+    store.save_prospect(sheet.model_copy(update={"status": "running"}))
+    try:
+        result = prospect_service.run_pipeline(sheet)
+        store.save_prospect(result)
+    except Exception as e:
+        logger.exception("Prospect pipeline failed for %s: %s", sheet_id, e)
+        store.save_prospect(
+            sheet.model_copy(
+                update={"status": "failed", "error": str(e) or e.__class__.__name__}
+            )
+        )
+
+
+def create_prospect_job(url: str) -> ProspectSheet:
+    sheet = prospect_service.create_sheet(url=url)
+    get_store().save_prospect(sheet)
+    submit_prospect(sheet.id)
+    return sheet
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ from api.routes import (
     content_brief as content_brief_routes,
     llms_txt as llms_txt_routes,
     perf_monitor as perf_monitor_routes,
+    prospect as prospect_routes,
     scheduler as scheduler_routes,
     seo_tracker as seo_tracker_routes,
     settings as settings_routes,
@@ -51,6 +52,9 @@ app.include_router(
 )
 app.include_router(
     ai_visibility_routes.router, prefix="/ai-visibility", tags=["ai-visibility"], dependencies=_auth,
+)
+app.include_router(
+    prospect_routes.router, prefix="/prospect", tags=["prospect"], dependencies=_auth,
 )
 app.include_router(settings_routes.router, prefix="/settings", tags=["settings"], dependencies=_auth)
 app.include_router(llms_txt_routes.router, prefix="/llms-txt", tags=["llms-txt"], dependencies=_auth)
