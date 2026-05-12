@@ -624,6 +624,7 @@ export interface ProspectContact {
   email: string
   phone: string
   linkedin: string
+  note: string
   source: string
   sourceUrl: string
   sourceUrlOk: boolean | null

@@ -462,6 +462,9 @@ def _contact_card(c: ProspectContact, styles: dict) -> Table:
     left: list[Flowable] = [Paragraph(_esc(full, limit=120), styles["name"])]
     if (c.role or "").strip():
         left.append(Paragraph(_esc(c.role, limit=200), styles["role"]))
+    if (c.note or "").strip():
+        left.append(Spacer(1, 3))
+        left.append(Paragraph('⚠ ' + _esc(c.note, limit=400), styles["warn"]))
     coord_rows: list[tuple[str, str]] = []
     if (c.email or "").strip():
         coord_rows.append(("Email", c.email))

@@ -176,6 +176,12 @@ export function ProspectSheetView({ sheet }: Props) {
                           <ConfidenceDot c={c.confidence} />
                           <SourceLink source={c.source} url={c.sourceUrl} ok={c.sourceUrlOk} />
                         </div>
+                        {c.note?.trim() && (
+                          <div className="mt-1.5 flex items-start gap-1.5 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-1 text-[11px] text-[var(--status-warning-text)]">
+                            <span>⚠</span>
+                            <span>{c.note}</span>
+                          </div>
+                        )}
                         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
                           {c.email && (
                             <a href={`mailto:${c.email}`} className="text-primary hover:underline">

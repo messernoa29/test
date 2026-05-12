@@ -1066,6 +1066,7 @@ class ProspectContact(BaseModel):
     email: str = ""         # only if the source attributes it to this person
     phone: str = ""         # only if the source attributes it to this person
     linkedin: str = ""      # public LinkedIn URL if it appeared in search results
+    note: str = ""          # caveat, e.g. "dirigeant légal RCS — à confirmer, peut-être pas l'interlocuteur"
     source: str = ""        # short label: "site équipe", "mentions légales", "Pappers", "presse: <média>"…
     sourceUrl: str = ""     # exact URL of the source — REQUIRED when email/phone given
     sourceUrlOk: Optional[bool] = None  # True/False after a HEAD/GET check, None if not checked

@@ -5950,6 +5950,11 @@
             "title": "Linkedin",
             "default": ""
           },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
           "source": {
             "type": "string",
             "title": "Source",

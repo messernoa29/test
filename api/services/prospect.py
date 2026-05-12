@@ -96,6 +96,24 @@ _SYSTEM = (
     "coordonnée trouvée pourrait en réalité être celle d'une AUTRE de ses "
     "sociétés (ex : un numéro vu sur le site d'une autre entreprise qu'elle "
     "dirige), ne la rattache PAS ici — laisse vide et baisse la confiance.\n"
+    "RÈGLE DIRIGEANT LÉGAL ≠ INTERLOCUTEUR (TRÈS IMPORTANT) : un « représentant "
+    "légal » / « président » / « gérant » lu sur Pappers ou Societe.com est la "
+    "personne enregistrée au RCS pour une SOCIÉTÉ IMMATRICULÉE — ce n'est PAS "
+    "forcément la personne en poste, ni la bonne société. Avant de l'inclure : "
+    "(1) VÉRIFIE que la fiche légale correspond bien au site analysé — adresse "
+    "du siège, nom commercial / enseigne, secteur d'activité doivent concorder "
+    "avec ce que tu vois sur le site et dans ses mentions légales. S'il y a un "
+    "doute (adresse différente, autre activité, autre ville, plusieurs sociétés "
+    "au même nom) : N'INCLUS PAS ce dirigeant — c'est probablement un homonyme "
+    "ou la mauvaise société. (2) Si la fiche légale concorde MAIS que rien "
+    "d'autre (site, page équipe, presse, LinkedIn) ne confirme que la personne "
+    "est réellement en activité dans l'entreprise : tu peux l'inclure mais avec "
+    "confidence=\"low\", role libellé « <Titre> (mention RCS) » (ex : « Président "
+    "(mention RCS) »), et une note dans le champ `note` du contact « dirigeant "
+    "légal déclaré au RCS — à confirmer, peut ne pas être l'interlocuteur "
+    "opérationnel ». N'écris « Président » / « Gérant » SANS le suffixe « (mention "
+    "RCS) » QUE si une source non-légale (site, presse, LinkedIn) confirme que "
+    "la personne occupe bien ce poste aujourd'hui.\n"
     "RÈGLE SOURCEURL : ne cite JAMAIS une URL que tu n'as pas réellement vue "
     "dans tes résultats de recherche ou en parcourant le site. Pas d'URL "
     "« plausible » reconstruite à la main (ex : deviner /equipe/jean-dupont). "
@@ -175,7 +193,8 @@ Produis :
   - approachAngles : 2-4 accroches de prospection PERSONNALISÉES, ancrées sur ce qui a réellement été observé sur le site
   - contacts : liste des PERSONNES nommées trouvées (idéalement les décideurs : dirigeants officiels via Pappers/Societe.com, responsables marketing/digital via le site ou la presse). Pour chacune :
       - firstName, lastName
-      - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. Mieux vaut `role` vide qu'un rôle faux.
+      - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. Si la personne vient UNIQUEMENT du registre légal (Pappers/Societe.com) et n'est confirmée nulle part ailleurs : écris « <Titre> (mention RCS) » (ex : « Président (mention RCS) ») et baisse confidence à "low". Mieux vaut `role` vide ou « (mention RCS) » qu'un rôle faux. Et n'inclus PAS cette personne du tout si la fiche légale ne correspond pas clairement au site (adresse / nom commercial / secteur différents → probable homonyme ou mauvaise société).
+      - note : avertissement éventuel sur ce contact (ex : « dirigeant légal déclaré au RCS — à confirmer, peut ne pas être l'interlocuteur opérationnel »). Vide si rien à signaler.
       - email : UNIQUEMENT si une source montre clairement que cet email est CELUI DE CETTE PERSONNE (ex : page équipe avec l'email à côté du nom). Vide sinon. Ne devine JAMAIS prenom.nom@domaine.
       - phone : cherche activement la ligne DIRECTE de la personne (page équipe détaillée, signature de communiqué). Ne la renseigne QUE si la source la rattache explicitement à cette personne. Sinon vide (un numéro général va dans companyPhones, jamais collé à une personne).
       - linkedin : URL LinkedIn publique seulement si elle apparaît dans tes résultats de recherche
@@ -210,7 +229,7 @@ Sortie STRICTE :
     "likelyPriorities": ["..."],
     "approachAngles": ["..."],
     "contacts": [
-      {{"firstName": "...", "lastName": "...", "role": "...", "email": "...", "phone": "...", "linkedin": "...", "otherAffiliations": ["..."], "source": "...", "sourceUrl": "...", "confidence": "high"}}
+      {{"firstName": "...", "lastName": "...", "role": "...", "email": "...", "phone": "...", "linkedin": "...", "otherAffiliations": ["..."], "note": "", "source": "...", "sourceUrl": "...", "confidence": "high"}}
     ],
     "companyEmails": ["..."],
     "companyPhones": ["..."],
@@ -247,8 +266,8 @@ def run_pipeline(sheet: ProspectSheet) -> ProspectSheet:
         stack = detect_tech_stack(home_html, home_headers)
 
         identity, persona = _enrich_with_llm(sheet.url, sheet.domain, pages, stack)
-        identity, persona = _verify_source_urls(identity, persona)
         persona = _add_search_links(persona, identity)
+        identity, persona = _verify_source_urls(identity, persona)
         return sheet.model_copy(
             update={
                 "status": "done",
@@ -672,7 +691,9 @@ def _add_search_links(
         q_person = quote_plus(full)
         q_combo = quote_plus(f"{full} {company}".strip())
         links = {
-            "linkedin": f"https://www.linkedin.com/search/results/people/?keywords={q_combo}",
+            # LinkedIn: name ONLY — adding the company name yields zero results
+            # (nobody has the company in their name field).
+            "linkedin": f"https://www.linkedin.com/search/results/people/?keywords={q_person}",
             "pappers": f"https://www.pappers.fr/recherche?q={q_combo}",
             "societe": f"https://www.societe.com/cgi-bin/search?champs={q_person}",
             "google": f"https://www.google.com/search?q={q_combo}",
@@ -684,25 +705,42 @@ def _add_search_links(
     return persona.model_copy(update={"contacts": new_contacts})
 
 
-def _check_url_alive(client: httpx.Client, url: str) -> Optional[bool]:
-    """True if the URL responds < 400, False if it 404s / errors, None if we
-    can't tell (malformed URL, etc.). We never *remove* anything based on this —
-    it only powers a ⚠️ hint in the UI."""
+def _url_status(client: httpx.Client, url: str) -> Optional[int]:
+    """Return the HTTP status of `url` (after redirects), or None if unreachable
+    / malformed. HEAD first, ranged GET as a fallback."""
     u = (url or "").strip()
     if not u or not u.lower().startswith(("http://", "https://")):
         return None
     try:
         resp = client.head(u)
-        # Some servers don't allow HEAD — fall back to a ranged GET.
         if resp.status_code in (403, 405, 501):
             resp = client.get(u, headers={"Range": "bytes=0-2048"})
     except httpx.HTTPError:
         try:
             resp = client.get(u, headers={"Range": "bytes=0-2048"})
         except httpx.HTTPError as e:
-            logger.debug("source URL check failed for %s: %s", u, e)
-            return False
-    return resp.status_code < 400
+            logger.debug("URL check failed for %s: %s", u, e)
+            return None
+    return resp.status_code
+
+
+def _check_url_alive(client: httpx.Client, url: str) -> Optional[bool]:
+    """True if the URL responds < 400, False if it 404s / unreachable, None if
+    we can't tell (malformed URL). We never *remove* anything based on this —
+    it only powers a ⚠️ hint in the UI."""
+    if not (url or "").strip() or not url.strip().lower().startswith(("http://", "https://")):
+        return None
+    status = _url_status(client, url)
+    if status is None:
+        return False
+    return status < 400
+
+
+def _linkedin_url_dead(client: httpx.Client, url: str) -> bool:
+    """LinkedIn returns 999 / login walls for bots, so we only treat a *hard*
+    404/410 as a confirmed dead profile URL (worth dropping)."""
+    status = _url_status(client, url)
+    return status in (404, 410)
 
 
 def _verify_source_urls(
@@ -728,12 +766,18 @@ def _verify_source_urls(
         return cache[key]
 
     try:
-        # contacts
-        new_contacts = [
-            c.model_copy(update={"sourceUrlOk": check(c.sourceUrl)})
-            if (c.sourceUrl or "").strip() else c
-            for c in persona.contacts
-        ]
+        # contacts: check sourceUrl + drop a LinkedIn profile URL that hard-404s
+        new_contacts = []
+        for c in persona.contacts:
+            upd: dict = {}
+            if (c.sourceUrl or "").strip():
+                upd["sourceUrlOk"] = check(c.sourceUrl)
+            if (c.linkedin or "").strip() and _linkedin_url_dead(client, c.linkedin):
+                upd["linkedin"] = ""
+                links = dict(c.searchLinks or {})
+                links.pop("linkedin_profile", None)
+                upd["searchLinks"] = links
+            new_contacts.append(c.model_copy(update=upd) if upd else c)
         persona = persona.model_copy(update={"contacts": new_contacts})
         # parent company + its contacts
         pc = identity.parentCompany
