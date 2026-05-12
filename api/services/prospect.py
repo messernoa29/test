@@ -801,11 +801,80 @@ def _linkedin_url_dead(client: httpx.Client, url: str) -> bool:
     return status in (404, 410)
 
 
+_LINKEDIN_HOST_RE = re.compile(r"(^|\.)linkedin\.com$", re.IGNORECASE)
+_NAME_TOKEN_STOPWORDS = {"de", "du", "des", "le", "la", "les", "groupe", "group",
+                        "agence", "studio", "company", "sas", "sarl", "sa", "eurl",
+                        "and", "the", "&", "société", "societe"}
+
+
+def _significant_tokens(text: str) -> list[str]:
+    """Lowercased word tokens of length >= 3, minus common filler — used to test
+    whether a company / person name actually appears on a page."""
+    out: list[str] = []
+    for tok in re.split(r"[^0-9a-zàâäéèêëïîôöùûüçñ]+", (text or "").lower()):
+        if len(tok) >= 3 and tok not in _NAME_TOKEN_STOPWORDS:
+            out.append(tok)
+    return out
+
+
+def _fetch_page_text(client: httpx.Client, url: str) -> Optional[str]:
+    """GET the page and return its visible text (lowercased, ~40k chars max),
+    or None if it can't be fetched / isn't HTML / is a LinkedIn login wall."""
+    u = (url or "").strip()
+    if not u.lower().startswith(("http://", "https://")):
+        return None
+    host = urlparse(u).netloc.lower()
+    if _LINKEDIN_HOST_RE.search(host):
+        return None  # LinkedIn blocks bots / serves a login wall — not verifiable
+    try:
+        resp = client.get(u, headers={"Accept": "text/html,*/*"})
+    except httpx.HTTPError:
+        return None
+    if resp.status_code >= 400:
+        return None
+    ctype = resp.headers.get("content-type", "").lower()
+    if ctype and "html" not in ctype and "xml" not in ctype and "text" not in ctype:
+        return None
+    try:
+        txt = _visible_text(resp.text)
+    except Exception:
+        return None
+    return txt[:40000].lower() if txt else None
+
+
+def _source_confirms_person(page_text: str, first: str, last: str, company: str) -> bool:
+    """True if the page text plausibly attaches this person to this company:
+    the surname (or full name) AND at least one significant company token appear."""
+    if not page_text:
+        return False
+    pt = page_text  # already lowercased
+    last = (last or "").strip().lower()
+    first = (first or "").strip().lower()
+    name_hit = False
+    if last and len(last) >= 3 and last in pt:
+        name_hit = True
+    elif first and last and f"{first} {last}" in pt:
+        name_hit = True
+    elif first and not last and len(first) >= 3 and first in pt:
+        # only a first name known — much weaker, require it to be present
+        name_hit = first in pt
+    if not name_hit:
+        return False
+    comp_tokens = _significant_tokens(company)
+    if not comp_tokens:
+        return True  # no usable company name to cross-check — accept on name hit
+    return any(t in pt for t in comp_tokens)
+
+
 def _verify_source_urls(
     identity: ProspectCompanyIdentity, persona: ProspectPersona
 ) -> tuple[ProspectCompanyIdentity, ProspectPersona]:
-    """HEAD/GET every sourceUrl the LLM cited; tag each with sourceUrlOk.
-    Nothing is removed — a dead link just gets a ⚠️ in the UI."""
+    """For every contact with a sourceUrl: actually fetch the page and check
+    that the person's name AND the company name appear on it. If the page is
+    readable but does NOT back the attribution → strip the role/email/phone tied
+    to it, drop confidence to "low", and add a note. LinkedIn / unreachable
+    pages are left alone (can't be verified). Also: dead sourceUrl → sourceUrlOk
+    False (⚠️ in the UI); a hard-404 LinkedIn profile URL is dropped."""
     headers = {"User-Agent": _USER_AGENT, "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7"}
     try:
         client = httpx.Client(
@@ -814,37 +883,77 @@ def _verify_source_urls(
     except Exception as e:
         logger.debug("source URL verifier: client init failed: %s", e)
         return identity, persona
-    cache: dict[str, Optional[bool]] = {}
 
-    def check(url: str) -> Optional[bool]:
+    company = (identity.name or "").strip()
+    page_cache: dict[str, Optional[str]] = {}
+    alive_cache: dict[str, Optional[bool]] = {}
+
+    def page_text(url: str) -> Optional[str]:
         key = (url or "").strip()
-        if key in cache:
-            return cache[key]
-        cache[key] = _check_url_alive(client, key)
-        return cache[key]
+        if key not in page_cache:
+            page_cache[key] = _fetch_page_text(client, key)
+        return page_cache[key]
+
+    def is_alive(url: str) -> Optional[bool]:
+        key = (url or "").strip()
+        if key not in alive_cache:
+            alive_cache[key] = _check_url_alive(client, key)
+        return alive_cache[key]
+
+    def append_note(existing: str, extra: str) -> str:
+        existing = (existing or "").strip()
+        if not existing:
+            return extra
+        if extra.lower() in existing.lower():
+            return existing
+        return f"{existing} — {extra}"
 
     try:
-        # contacts: check sourceUrl + drop a LinkedIn profile URL that hard-404s
         new_contacts = []
         for c in persona.contacts:
             upd: dict = {}
-            if (c.sourceUrl or "").strip():
-                upd["sourceUrlOk"] = check(c.sourceUrl)
+            src = (c.sourceUrl or "").strip()
+            if src:
+                upd["sourceUrlOk"] = is_alive(src)
+                txt = page_text(src)
+                # Only act when we actually got a substantial chunk of text;
+                # a near-empty body usually means a JS-rendered page we can't
+                # read, not a page that disproves the attribution.
+                if txt is not None and len(txt) >= 600:
+                    if _source_confirms_person(txt, c.firstName, c.lastName, company):
+                        # genuinely confirmed — bump weak confidences up a notch
+                        if c.confidence == "low":
+                            upd["confidence"] = "medium"
+                    else:
+                        # the cited page does NOT support the attribution
+                        if c.email:
+                            upd["email"] = ""
+                        if c.phone:
+                            upd["phone"] = ""
+                        if c.confidence == "high":
+                            upd["confidence"] = "medium"
+                        elif c.confidence == "medium":
+                            upd["confidence"] = "low"
+                        upd["note"] = append_note(
+                            c.note,
+                            "la source citée ne mentionne pas clairement cette personne avec l'entreprise — à vérifier",
+                        )
             if (c.linkedin or "").strip() and _linkedin_url_dead(client, c.linkedin):
                 upd["linkedin"] = ""
             new_contacts.append(c.model_copy(update=upd) if upd else c)
         persona = persona.model_copy(update={"contacts": new_contacts})
-        # parent company + its contacts
+
+        # parent company + its contacts: just check liveness (lighter touch)
         pc = identity.parentCompany
         if pc is not None:
             pc_contacts = [
-                c.model_copy(update={"sourceUrlOk": check(c.sourceUrl)})
+                c.model_copy(update={"sourceUrlOk": is_alive(c.sourceUrl)})
                 if (c.sourceUrl or "").strip() else c
                 for c in pc.contacts
             ]
             pc = pc.model_copy(update={
                 "contacts": pc_contacts,
-                "sourceUrlOk": check(pc.sourceUrl) if (pc.sourceUrl or "").strip() else pc.sourceUrlOk,
+                "sourceUrlOk": is_alive(pc.sourceUrl) if (pc.sourceUrl or "").strip() else pc.sourceUrlOk,
             })
             identity = identity.model_copy(update={"parentCompany": pc})
     finally:
