@@ -86,6 +86,16 @@ _SYSTEM = (
     "prenom.nom@domaine. En cas de doute : champ vide. Cherche activement les "
     "téléphones DIRECTS des personnes nommées (pages équipe détaillées, "
     "signatures de communiqués) mais ne les invente jamais.\n"
+    "RÈGLE HOMONYMES / AUTRES SOCIÉTÉS : avant d'attribuer un rôle ou une "
+    "coordonnée à une personne nommée, vérifie qu'il s'agit bien de LA personne "
+    "qui travaille pour CETTE entreprise (Pappers/Societe.com listent les "
+    "mandats d'une personne : « gérant de X », « président de Y » — utile pour "
+    "repérer les homonymes et les mandats croisés). Si la personne est aussi "
+    "rattachée publiquement à d'autres entreprises (autre poste, autre mandat, "
+    "fondateur d'une autre boîte), liste-le dans otherAffiliations. Si une "
+    "coordonnée trouvée pourrait en réalité être celle d'une AUTRE de ses "
+    "sociétés (ex : un numéro vu sur le site d'une autre entreprise qu'elle "
+    "dirige), ne la rattache PAS ici — laisse vide et baisse la confiance.\n"
     "RÈGLE SOURCEURL : ne cite JAMAIS une URL que tu n'as pas réellement vue "
     "dans tes résultats de recherche ou en parcourant le site. Pas d'URL "
     "« plausible » reconstruite à la main (ex : deviner /equipe/jean-dupont). "
@@ -136,6 +146,7 @@ Coordonnées brutes extraites automatiquement du site (à attribuer aux personne
 Utilise web_search de façon CIBLÉE :
 - "{domain} Pappers" / "{domain} Societe.com" / "<raison sociale> Infogreffe" → dirigeants officiels, ACTIONNAIRES / société mère, date de création, adresse du siège, raison sociale
 - "<raison sociale> directeur" / "... responsable commercial" / "... CEO" / "... fondateur" → confirmer des rôles explicites (poste réel, pas une mention légale) dans des articles/communiqués/pages d'équipe
+- "<prénom nom> Pappers" / "<prénom nom> mandats" / "<prénom nom> dirigeant" → vérifier qu'on parle bien de LA bonne personne (pas un homonyme), et repérer ses autres mandats / autres sociétés (→ otherAffiliations)
 - "<raison sociale> rachat" / "... groupe" / "... filiale de" → détecter une maison-mère / une opération de rachat, puis "<nom du groupe> PDG / dirigeants" pour ses contacts
 - recherche du nom de l'entreprise sur les pages équipe / "qui sommes-nous" si non déjà crawlées (y chercher les lignes directes / emails nominatifs)
 - les extraits LinkedIn publics renvoyés par la recherche peuvent confirmer un nom+rôle (jamais ouvrir linkedin.com, jamais de numéro/email privé)
@@ -168,6 +179,7 @@ Produis :
       - email : UNIQUEMENT si une source montre clairement que cet email est CELUI DE CETTE PERSONNE (ex : page équipe avec l'email à côté du nom). Vide sinon. Ne devine JAMAIS prenom.nom@domaine.
       - phone : cherche activement la ligne DIRECTE de la personne (page équipe détaillée, signature de communiqué). Ne la renseigne QUE si la source la rattache explicitement à cette personne. Sinon vide (un numéro général va dans companyPhones, jamais collé à une personne).
       - linkedin : URL LinkedIn publique seulement si elle apparaît dans tes résultats de recherche
+      - otherAffiliations : autres entreprises / mandats publics de cette personne (« gérant de … », « président de … », « fondateur de … »), liste vide si aucune connue. Sert à repérer les homonymes et les mandats croisés.
       - source : libellé court de la source (ex : "site équipe", "mentions légales", "Pappers", "Societe.com", "presse: Les Échos", "résultat LinkedIn")
       - sourceUrl : l'URL EXACTE de la source — OBLIGATOIRE dès que tu donnes un email, un phone, ou un rôle non trivial. Si tu ne peux pas donner d'URL de source, alors tu ne donnes pas la coordonnée.
       - confidence : "high" = nom+rôle (et éventuelle coordonnée) vus verbatim et explicitement attribués dans une source citée ; "medium" = nom+rôle confirmés par recoupement de sources mais pas un seul document explicite ; "low" = signal faible (ne mets pas de coordonnée dans ce cas)
@@ -198,7 +210,7 @@ Sortie STRICTE :
     "likelyPriorities": ["..."],
     "approachAngles": ["..."],
     "contacts": [
-      {{"firstName": "...", "lastName": "...", "role": "...", "email": "...", "phone": "...", "linkedin": "...", "source": "...", "sourceUrl": "...", "confidence": "high"}}
+      {{"firstName": "...", "lastName": "...", "role": "...", "email": "...", "phone": "...", "linkedin": "...", "otherAffiliations": ["..."], "source": "...", "sourceUrl": "...", "confidence": "high"}}
     ],
     "companyEmails": ["..."],
     "companyPhones": ["..."],
@@ -502,7 +514,7 @@ def _enrich_with_llm(
         response = get_llm_client().generate(
             system=_SYSTEM,
             user_prompt=prompt,
-            max_tokens=5500,
+            max_tokens=6500,
             enable_web_search=True,
             temperature=0.0,
         )

@@ -1069,6 +1069,10 @@ class ProspectContact(BaseModel):
     source: str = ""        # short label: "site équipe", "mentions légales", "Pappers", "presse: <média>"…
     sourceUrl: str = ""     # exact URL of the source — REQUIRED when email/phone given
     sourceUrlOk: Optional[bool] = None  # True/False after a HEAD/GET check, None if not checked
+    # Other companies / mandates this person is publicly attached to (e.g. Pappers
+    # lists a person's mandates: "gérant de X", "président de Y"). Helps tell
+    # whether a phone/email might belong to a different company than the prospect.
+    otherAffiliations: list[str] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low"] = "medium"  # high = verbatim+attributed, low = weak signal
 
 

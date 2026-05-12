@@ -5971,6 +5971,13 @@
             ],
             "title": "Sourceurlok"
           },
+          "otherAffiliations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Otheraffiliations"
+          },
           "confidence": {
             "type": "string",
             "enum": [

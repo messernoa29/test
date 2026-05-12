@@ -196,6 +196,11 @@ export function ProspectSheetView({ sheet }: Props) {
                             <span className="text-text-tertiary">Pas de coordonnée directe trouvée</span>
                           )}
                         </div>
+                        {(c.otherAffiliations?.length ?? 0) > 0 && (
+                          <div className="mt-1.5 text-[11px] text-text-tertiary">
+                            Aussi rattaché·e à : {c.otherAffiliations!.join(' · ')}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

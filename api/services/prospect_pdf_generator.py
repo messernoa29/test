@@ -478,6 +478,11 @@ def _contact_card(c: ProspectContact, styles: dict) -> Table:
     if sl is not None:
         left.append(Spacer(1, 4))
         left.append(sl)
+    if c.otherAffiliations:
+        left.append(Paragraph(
+            "Aussi rattaché·e à : " + _esc(" · ".join(c.otherAffiliations), limit=400),
+            styles["mono_sec"],
+        ))
     right = [_confidence_badge(c.confidence, styles)]
     t = Table([[left, right]], colWidths=[CONTENT_WIDTH - 70 - 24, 70])
     t.setStyle(TableStyle([

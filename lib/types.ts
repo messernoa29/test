@@ -627,6 +627,7 @@ export interface ProspectContact {
   source: string
   sourceUrl: string
   sourceUrlOk: boolean | null
+  otherAffiliations: string[]
   confidence: TechConfidence
 }
 
