@@ -29,6 +29,7 @@ import httpx
 from api.models import (
     DetectedTech,
     ProspectCompanyIdentity,
+    ProspectContact,
     ProspectParentCompany,
     ProspectParentContact,
     ProspectPersona,
@@ -115,13 +116,19 @@ _SYSTEM = (
     "Si tu n'as pas l'URL exacte d'une source fiable, mets sourceUrl vide et "
     "n'affirme pas la coordonnée. Préfère l'URL de la page d'index "
     "(ex : la page « équipe ») si tu n'as pas l'URL profonde exacte.\n"
-    "RÈGLE GROUPE / MAISON-MÈRE : cherche si l'entreprise appartient à un "
-    "groupe / a une société mère / a été rachetée (Pappers et Societe.com "
-    "indiquent les actionnaires personnes morales et le groupe ; les mentions "
-    "légales et les communiqués aussi). Si oui : donne le nom du groupe, la "
-    "nature du lien (filiale, marque, rachat + année…), et les dirigeants ou "
-    "contacts connus de ce groupe (PDG, directeur général, etc.) avec leur "
-    "source. Mêmes règles strictes : rien d'inventé, sourceUrl réel.\n"
+    "RÈGLE GROUPE / MAISON-MÈRE — NE PAS MÉLANGER AVEC L'ENTREPRISE : cherche si "
+    "l'entreprise appartient à un groupe / a une société mère / a été rachetée "
+    "(Pappers et Societe.com indiquent les actionnaires personnes morales ; les "
+    "mentions légales et les communiqués aussi). Si oui : remplis `parentCompany` "
+    "avec le nom du groupe, la nature du lien (filiale, marque, rachat + année…), "
+    "et place les dirigeants du GROUPE (PDG/président/DG du groupe, fondateur du "
+    "groupe…) UNIQUEMENT dans `parentCompany.contacts` — PAS dans `persona.contacts`. "
+    "Le dirigeant du groupe n'est PAS un contact de l'entreprise filiale, sauf "
+    "s'il est aussi explicitement représentant légal ou opérationnel de la "
+    "filiale (auquel cas tu peux le mettre aussi dans persona.contacts avec une "
+    "note « également dirigeant du groupe <X> »). Ne donne JAMAIS le titre « CEO »/"
+    "« président » de l'entreprise à quelqu'un qui est en réalité le dirigeant du "
+    "groupe parent. Mêmes règles strictes : rien d'inventé, sourceUrl réel.\n"
     "SOURCES À UTILISER (recherche web) : annuaires légaux (Pappers, "
     "Societe.com, Infogreffe — fiables pour raison sociale, dirigeants "
     "officiels, actionnaires / groupe, date de création, adresse du siège) ; "
@@ -264,6 +271,7 @@ def run_pipeline(sheet: ProspectSheet) -> ProspectSheet:
         identity, persona = _enrich_with_llm(sheet.url, sheet.domain, pages, stack)
         persona = _add_linkedin_search(persona, identity)
         identity, persona = _verify_source_urls(identity, persona)
+        persona = _cross_check_pappers_directors(identity, persona)
         return sheet.model_copy(
             update={
                 "status": "done",
@@ -959,6 +967,127 @@ def _verify_source_urls(
     finally:
         client.close()
     return identity, persona
+
+
+# --- Pappers cross-check for director titles --------------------------------
+
+# Job titles that should match the legal representative on Pappers.
+_DIRECTOR_TITLE_RE = re.compile(
+    r"\b(pr[ée]sident|pdg|p\.?d\.?g|directeur g[ée]n[ée]ral|directrice g[ée]n[ée]rale|"
+    r"g[ée]rant|g[ée]rante|ceo|chief executive|repr[ée]sentant l[ée]gal|"
+    r"dirigeant|dirigeante|cofondateur|co-?fondateur|fondateur|fondatrice|founder)\b",
+    re.IGNORECASE,
+)
+# Capitalised "Prénom NOM" / "Prénom Nom" pattern (1-2 given names + surname).
+_PERSON_NAME_RE = re.compile(
+    r"\b([A-ZÉÈÊÀÂÎÔÛÇ][a-zàâäéèêëïîôöùûüç'’\-]+(?:\s+[A-ZÉÈÊÀÂÎÔÛÇ][a-zàâäéèêëïîôöùûüç'’\-]+)?)"
+    r"\s+([A-ZÉÈÊÀÂÎÔÛÇ][A-ZÉÈÊÀÂÎÔÛÇ'’\-]{2,}|[A-ZÉÈÊÀÂÎÔÛÇ][a-zàâäéèêëïîôöùûüç'’\-]{2,})\b"
+)
+
+
+def _pappers_director_names(client: httpx.Client, company: str) -> list[tuple[str, str]]:
+    """Best-effort: fetch the Pappers search page for `company` and pull out
+    likely director names (capitalised names appearing near a director title).
+    Returns [(first, last)], possibly empty. Never raises."""
+    name = (company or "").strip()
+    if not name:
+        return []
+    url = f"https://www.pappers.fr/recherche?q={quote_plus(name)}"
+    try:
+        resp = client.get(url, headers={"Accept": "text/html"})
+        if resp.status_code >= 400:
+            return []
+        text = _visible_text(resp.text)
+    except Exception:
+        return []
+    if not text or len(text) < 400:
+        return []
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    # scan windows around each director-title hit for a person name
+    for m in _DIRECTOR_TITLE_RE.finditer(text):
+        window = text[max(0, m.start() - 80): m.end() + 80]
+        for nm in _PERSON_NAME_RE.finditer(window):
+            first, last = nm.group(1).strip(), nm.group(2).strip()
+            if len(first) < 2 or len(last) < 2:
+                continue
+            key = f"{first.lower()} {last.lower()}"
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((first, last))
+            if len(out) >= 6:
+                return out
+    return out
+
+
+def _same_person(a_first: str, a_last: str, b_first: str, b_last: str) -> bool:
+    af, al = (a_first or "").strip().lower(), (a_last or "").strip().lower()
+    bf, bl = (b_first or "").strip().lower(), (b_last or "").strip().lower()
+    if al and bl and al == bl:
+        # same surname — accept if first names match or one is empty/initial
+        if not af or not bf or af == bf or af[:1] == bf[:1]:
+            return True
+    return False
+
+
+def _cross_check_pappers_directors(
+    identity: ProspectCompanyIdentity, persona: ProspectPersona
+) -> ProspectPersona:
+    """For contacts the AI gave a director-level title to, verify against the
+    legal representatives listed on Pappers. If Pappers names a *different*
+    legal rep, annotate the AI's contact and append the Pappers rep as a
+    low-confidence contact. Best-effort; never raises."""
+    company = (identity.name or "").strip()
+    if not company or not persona.contacts:
+        return persona
+    # bare company name without legal-form suffix, for cleaner Pappers search
+    bare = re.sub(r"\b(sas|sasu|sarl|eurl|sa|sci|scop|snc|société|societe)\b", "", company, flags=re.IGNORECASE)
+    bare = re.sub(r"[()].*", "", bare).strip(" -·|") or company
+    try:
+        client = httpx.Client(
+            headers={"User-Agent": _USER_AGENT, "Accept-Language": "fr-FR,fr;q=0.9"},
+            timeout=8.0, follow_redirects=True, verify=False,
+        )
+    except Exception:
+        return persona
+    try:
+        pappers_dirs = _pappers_director_names(client, bare)
+    finally:
+        client.close()
+    if not pappers_dirs:
+        return persona  # couldn't read Pappers — leave everything as is
+
+    pappers_str = ", ".join(f"{f} {l}" for f, l in pappers_dirs)
+    new_contacts = list(persona.contacts)
+    matched_any = False
+    for i, c in enumerate(new_contacts):
+        role = (c.role or "")
+        if not _DIRECTOR_TITLE_RE.search(role):
+            continue
+        if any(_same_person(c.firstName, c.lastName, f, l) for f, l in pappers_dirs):
+            matched_any = True
+            continue
+        # AI gave a director title to someone Pappers doesn't list as such
+        note = (c.note or "").strip()
+        extra = f"⚠ Pappers indique plutôt {pappers_str} comme dirigeant(s) — titre à vérifier"
+        if extra.lower() not in note.lower():
+            note = f"{note} — {extra}" if note else extra
+        downgraded = "medium" if c.confidence == "high" else ("low" if c.confidence == "medium" else c.confidence)
+        new_contacts[i] = c.model_copy(update={"note": note, "confidence": downgraded})
+    # append any Pappers director not already present
+    if not matched_any:
+        for f, l in pappers_dirs[:2]:
+            if any(_same_person(f, l, c.firstName, c.lastName) for c in new_contacts):
+                continue
+            new_contacts.append(
+                ProspectContact(
+                    firstName=f, lastName=l,
+                    role="Dirigeant·e (d'après Pappers)", confidence="low",
+                    source="Pappers", note="représentant légal d'après Pappers — à confirmer comme interlocuteur",
+                )
+            )
+    return persona.model_copy(update={"contacts": new_contacts})
 
 
 def _scan_balanced(text: str, start: int) -> Optional[str]:
