@@ -22,7 +22,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import quote_plus, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -52,8 +52,8 @@ _KEY_PATHS = [
     "/qui-sommes-nous", "/notre-histoire",
     "/mentions-legales", "/mentions-legales/", "/legal", "/legal-notice", "/imprint",
 ]
-_MAX_EXTRA_PAGES = 5
-_MAX_TEXT_EXCERPT = 7000
+_MAX_EXTRA_PAGES = 7
+_MAX_TEXT_EXCERPT = 12000
 
 
 _SYSTEM = (
@@ -191,7 +191,7 @@ Produis :
   - likelyContactRoles : 1-3 rôles probables à contacter (ex : "Dirigeant·e", "Responsable marketing", "Responsable e-commerce", "DSI") selon la taille et le secteur
   - likelyPriorities : 2-4 priorités / douleurs probables de ce décideur
   - approachAngles : 2-4 accroches de prospection PERSONNALISÉES, ancrées sur ce qui a réellement été observé sur le site
-  - contacts : liste des PERSONNES nommées trouvées (idéalement les décideurs : dirigeants officiels via Pappers/Societe.com, responsables marketing/digital via le site ou la presse). Pour chacune :
+  - contacts : liste de TOUTES les PERSONNES nommées que tu identifies de façon fiable — vise l'EXHAUSTIVITÉ, pas seulement 1 ou 2. Ratisse : page « équipe » / « notre équipe » / « about » (chaque membre listé), mentions légales (gérant, dirigeants), Pappers/Societe.com (tous les représentants/dirigeants déclarés), signatures de communiqués, articles de presse, extraits LinkedIn publics. Liste-les toutes (10, 15, 20 si le site le permet), des décideurs jusqu'aux contacts opérationnels (chef de projet, responsable d'agence, etc.). Trie par pertinence pour la prospection : décideurs / dirigeants d'abord, puis le reste. Pour chacune :
       - firstName, lastName
       - role : sa FONCTION professionnelle réelle si une source la décrit explicitement (« directrice de l'agence », « responsable commercial », « DAF »…). VIDE si la seule info est une mention légale (« directeur·rice de la publication », « responsable de la rédaction », « éditeur du site »…) — ce ne sont PAS des postes. Si la personne vient UNIQUEMENT du registre légal (Pappers/Societe.com) et n'est confirmée nulle part ailleurs : écris « <Titre> (mention RCS) » (ex : « Président (mention RCS) ») et baisse confidence à "low". Mieux vaut `role` vide ou « (mention RCS) » qu'un rôle faux. Et n'inclus PAS cette personne du tout si la fiche légale ne correspond pas clairement au site (adresse / nom commercial / secteur différents → probable homonyme ou mauvaise société).
       - note : avertissement éventuel sur ce contact (ex : « dirigeant légal déclaré au RCS — à confirmer, peut ne pas être l'interlocuteur opérationnel »). Vide si rien à signaler.
@@ -266,7 +266,6 @@ def run_pipeline(sheet: ProspectSheet) -> ProspectSheet:
         stack = detect_tech_stack(home_html, home_headers)
 
         identity, persona = _enrich_with_llm(sheet.url, sheet.domain, pages, stack)
-        persona = _add_search_links(persona, identity)
         identity, persona = _verify_source_urls(identity, persona)
         return sheet.model_copy(
             update={
@@ -534,7 +533,7 @@ def _enrich_with_llm(
         response = get_llm_client().generate(
             system=_SYSTEM,
             user_prompt=prompt,
-            max_tokens=6500,
+            max_tokens=9000,
             enable_web_search=True,
             temperature=0.0,
         )
@@ -675,40 +674,6 @@ def _extract_json(response: LLMResponse, *, tag: str) -> Optional[dict]:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _add_search_links(
-    persona: ProspectPersona, identity: ProspectCompanyIdentity
-) -> ProspectPersona:
-    """Attach pre-filled people-search URLs (LinkedIn / Pappers / Societe.com)
-    to each named contact, so a logged-in salesperson can open the right
-    profile and read the coordinates themselves. We don't fetch anything here."""
-    company = (identity.name or "").strip()
-    new_contacts: list = []
-    for c in persona.contacts:
-        first = (c.firstName or "").strip()
-        last = (c.lastName or "").strip()
-        full = " ".join(b for b in [first, last] if b).strip()
-        if not full:
-            new_contacts.append(c)
-            continue
-        q_person = quote_plus(full)
-        q_combo = quote_plus(f"{full} {company}".strip())
-        # LinkedIn: full name alone if we have a surname (adding the company
-        # name otherwise returns zero results). If only a first name is known,
-        # disambiguate with the company name — "Marie" alone is useless.
-        ln_keywords = q_person if last else quote_plus(f"{full} {company}".strip())
-        links = {
-            "linkedin": f"https://www.linkedin.com/search/results/people/?keywords={ln_keywords}",
-            "pappers": f"https://www.pappers.fr/recherche?q={q_combo}",
-            "societe": f"https://www.societe.com/cgi-bin/search?champs={q_person}",
-            "google": f"https://www.google.com/search?q={q_combo}",
-        }
-        # keep an existing public linkedin profile URL if the LLM found one
-        if (c.linkedin or "").strip():
-            links["linkedin_profile"] = c.linkedin.strip()
-        new_contacts.append(c.model_copy(update={"searchLinks": links}))
-    return persona.model_copy(update={"contacts": new_contacts})
-
-
 def _url_status(client: httpx.Client, url: str) -> Optional[int]:
     """Return the HTTP status of `url` (after redirects), or None if unreachable
     / malformed. HEAD first, ranged GET as a fallback."""
@@ -778,9 +743,6 @@ def _verify_source_urls(
                 upd["sourceUrlOk"] = check(c.sourceUrl)
             if (c.linkedin or "").strip() and _linkedin_url_dead(client, c.linkedin):
                 upd["linkedin"] = ""
-                links = dict(c.searchLinks or {})
-                links.pop("linkedin_profile", None)
-                upd["searchLinks"] = links
             new_contacts.append(c.model_copy(update=upd) if upd else c)
         persona = persona.model_copy(update={"contacts": new_contacts})
         # parent company + its contacts

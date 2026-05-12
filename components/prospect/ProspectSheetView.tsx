@@ -207,7 +207,6 @@ export function ProspectSheetView({ sheet }: Props) {
                             Aussi rattaché·e à : {c.otherAffiliations!.join(' · ')}
                           </div>
                         )}
-                        <SearchLinks links={c.searchLinks} />
                       </div>
                     ))}
                   </div>
@@ -330,34 +329,6 @@ function TechGroup({ label, items }: { label: string; items: DetectedTech[] }) {
           </span>
         ))}
       </div>
-    </div>
-  )
-}
-
-function SearchLinks({ links }: { links?: Record<string, string> }) {
-  if (!links || Object.keys(links).length === 0) return null
-  const order: { key: string; label: string }[] = [
-    { key: 'linkedin_profile', label: 'Profil LinkedIn' },
-    { key: 'linkedin', label: 'Chercher sur LinkedIn' },
-    { key: 'pappers', label: 'Pappers' },
-    { key: 'societe', label: 'Societe.com' },
-    { key: 'google', label: 'Google' },
-  ]
-  const entries = order.filter((o) => links[o.key])
-  if (entries.length === 0) return null
-  return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {entries.map(({ key, label }) => (
-        <a
-          key={key}
-          href={links[key]}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center px-2 py-0.5 rounded border border-[var(--border-default)] bg-bg-elevated text-[11px] text-primary hover:underline"
-        >
-          🔎 {label} ↗
-        </a>
-      ))}
     </div>
   )
 }
