@@ -123,12 +123,18 @@ def test_markdown_optional_sections_appear():
         visibilityEstimate=VisibilityEstimate(trafficRange="500–1 500 visites/mois", summary="Visibilité faible."),
     )
     md = generate_markdown(audit)
-    assert "## Crawl technique" in md
-    assert "## GEO — citabilité par les IA" in md
-    assert "## Adaptation culturelle (site multilingue)" in md
-    assert "## SXO — type de page vs intention SERP" in md
-    assert "## Pages générées en masse (quality gates)" in md
-    assert "## Visibilité organique (estimation)" in md
+    # Sections are now folded into Notion-friendly <details> toggles whose
+    # <summary> carries the section name (with a leading emoji).
+    assert "<details>" in md and "</details>" in md
+    assert md.count("<details>") == md.count("</details>")  # balanced
+    assert "Crawl technique" in md
+    assert "GEO — citabilité par les IA" in md
+    assert "Adaptation culturelle" in md
+    assert "SXO — type de page vs intention SERP" in md
+    assert "Pages générées en masse" in md
+    assert "Visibilité organique (estimation)" in md
+    # The huge per-URL crawl table is no longer inlined (it's in the Excel).
+    assert "| URL | Code | Prof." not in md
 
 
 def test_markdown_ends_with_newline():
