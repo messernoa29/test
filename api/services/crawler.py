@@ -60,7 +60,8 @@ HEADING_LIMIT = 8
 SNIPPET_LIMIT = 200
 MAX_LINKS_PER_PAGE = 200  # safety cap per page (mega-footers exist)
 ANCHOR_TEXT_LIMIT = 80
-DEAD_LINK_PROBE_LIMIT = 25  # max external HEAD probes for dead-link detection
+DEAD_LINK_PROBE_LIMIT = int(os.getenv("DEAD_LINK_PROBE_LIMIT", "15"))  # max HEAD probes
+DEAD_LINK_PROBE_TIMEOUT = float(os.getenv("DEAD_LINK_PROBE_TIMEOUT", "5"))  # seconds per probe
 HUB_PAGES_TOP_N = 5
 ORPHAN_PAGES_LIMIT = 25
 TOP_ANCHOR_TEXTS_LIMIT = 15
@@ -896,23 +897,38 @@ def _probe_dead_links(
     edges_by_target: dict[str, list[tuple[str, str]]],
     crawled_urls: set[str],
 ) -> list[DeadInternalLink]:
-    """HEAD a sample of internal targets that weren't fully crawled."""
+    """HEAD a sample of internal targets that weren't fully crawled. Parallel
+    probes with a short timeout so a few hangs don't blow the whole audit."""
     candidates = [t for t in edges_by_target.keys() if t not in crawled_urls]
     # Most-linked first — broken hub links matter more than one-off references.
     candidates.sort(key=lambda t: -len(edges_by_target[t]))
     candidates = candidates[:DEAD_LINK_PROBE_LIMIT]
+    if not candidates:
+        return []
+
+    def probe(target: str) -> Optional[int]:
+        try:
+            resp = client.head(target, follow_redirects=True, timeout=DEAD_LINK_PROBE_TIMEOUT)
+            if resp.status_code == 405:
+                resp = client.get(target, timeout=DEAD_LINK_PROBE_TIMEOUT)
+            return resp.status_code
+        except httpx.HTTPError:
+            return None
+
+    workers = max(1, min(CRAWL_CONCURRENCY, len(candidates)))
+    statuses: dict[str, Optional[int]] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_to_target = {pool.submit(probe, t): t for t in candidates}
+        for fut in future_to_target:
+            target = future_to_target[fut]
+            try:
+                statuses[target] = fut.result()
+            except Exception:
+                statuses[target] = None
+
     dead: list[DeadInternalLink] = []
     for target in candidates:
-        status: Optional[int] = None
-        try:
-            resp = client.head(target, follow_redirects=True)
-            status = resp.status_code
-            if resp.status_code == 405:
-                # Some servers reject HEAD — fall back to GET
-                resp = client.get(target)
-                status = resp.status_code
-        except httpx.HTTPError:
-            status = None
+        status = statuses.get(target)
         if status is None or 400 <= status < 600:
             dead.append(
                 DeadInternalLink(
