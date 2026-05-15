@@ -15,7 +15,7 @@ import type {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
-const DEFAULT_TIMEOUT_MS = 30000
+const DEFAULT_TIMEOUT_MS = 90000
 // We store an opaque session token, never the raw password. Old key kept so
 // a stale plaintext password is cleaned up on first load.
 const TOKEN_STORAGE_KEY = 'audit-bureau:token'
