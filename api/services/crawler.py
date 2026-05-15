@@ -89,6 +89,10 @@ def crawl(url: str, max_pages: int = MAX_PAGES) -> CrawlData:
         follow_redirects=True,
         max_redirects=5,
         http2=False,
+        limits=httpx.Limits(
+            max_connections=max(CRAWL_CONCURRENCY * 2, 32),
+            max_keepalive_connections=CRAWL_CONCURRENCY,
+        ),
     )
 
     try:
