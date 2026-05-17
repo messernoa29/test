@@ -9,6 +9,7 @@ in `pending`.
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -44,7 +45,7 @@ _executor_lock = Lock()
 # Hard ceiling on a single audit. Past this, the in-pipeline guard (checked
 # between stages) aborts; a background sweeper also catches jobs whose worker
 # died entirely. Generous because Gemini free-tier rate limits add minutes.
-AUDIT_HARD_TIMEOUT_S = 20 * 60
+AUDIT_HARD_TIMEOUT_S = int(os.getenv("AUDIT_HARD_TIMEOUT_S", str(20 * 60)))
 
 # Tracks when each running audit started (monotonic), so the sweeper can fail
 # the ones that have been pending too long without a per-audit thread.

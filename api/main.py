@@ -97,8 +97,11 @@ def _fail_stale_jobs_on_boot() -> None:
     empty state). At boot, fail every job that's been running longer than the
     hard timeout so it doesn't show as 'in progress' for 42h."""
     from datetime import datetime, timezone, timedelta
+    from api.services.runner import AUDIT_HARD_TIMEOUT_S
     store = get_store()
-    stale_min = int(os.getenv("STALE_JOB_MIN", "25"))
+    # Boot cutoff = audit hard timeout + 5 min margin, overridable via env.
+    default_stale = max(25, AUDIT_HARD_TIMEOUT_S // 60 + 5)
+    stale_min = int(os.getenv("STALE_JOB_MIN", str(default_stale)))
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_min)
     try:
         for job in store.list_recent(limit=200, include_archived=True):
