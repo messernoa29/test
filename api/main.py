@@ -91,6 +91,47 @@ def _seed_fixture_if_requested() -> None:
 
 
 @app.on_event("startup")
+def _fail_stale_jobs_on_boot() -> None:
+    """A restart kills any in-flight audit's worker thread but leaves the row
+    in 'pending'/'running' forever (the in-memory sweeper restarts with an
+    empty state). At boot, fail every job that's been running longer than the
+    hard timeout so it doesn't show as 'in progress' for 42h."""
+    from datetime import datetime, timezone, timedelta
+    store = get_store()
+    stale_min = int(os.getenv("STALE_JOB_MIN", "25"))
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_min)
+    try:
+        for job in store.list_recent(limit=200, include_archived=True):
+            if job.status not in ("pending", "running"):
+                continue
+            try:
+                created = datetime.fromisoformat(job.created_at.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if created < cutoff:
+                logger.warning("Boot: failing stale audit %s (started %s)", job.id, job.created_at)
+                store.fail_job(job.id, f"Audit interrompu (redémarrage du serveur après {stale_min} min).")
+    except Exception as e:
+        logger.warning("Boot stale-audit sweep failed: %s", e)
+    try:
+        for sheet in store.list_prospects(limit=200):
+            if sheet.status not in ("pending", "running"):
+                continue
+            try:
+                created = datetime.fromisoformat(sheet.createdAt.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if created < cutoff:
+                logger.warning("Boot: failing stale prospect %s (started %s)", sheet.id, sheet.createdAt)
+                store.save_prospect(sheet.model_copy(update={
+                    "status": "failed",
+                    "error": f"Fiche interrompue (redémarrage du serveur après {stale_min} min).",
+                }))
+    except Exception as e:
+        logger.warning("Boot stale-prospect sweep failed: %s", e)
+
+
+@app.on_event("startup")
 def _start_scheduler() -> None:
     """Start the in-process cron scheduler when SCHEDULER_ENABLED=1."""
     scheduler_service.start()
